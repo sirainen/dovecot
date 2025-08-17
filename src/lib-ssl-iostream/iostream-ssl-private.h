@@ -32,6 +32,11 @@ struct iostream_ssl_vfuncs {
 	void (*set_sni_callback)(struct ssl_iostream *ssl_io,
 				 ssl_iostream_sni_callback_t *callback,
 				 void *context);
+	void (*set_certificate_callback)(struct ssl_iostream_context *ctx,
+					 ssl_iostream_certificate_callback_t *callback,
+					 void *context);
+	void (*set_certificate)(struct ssl_iostream *ssl_io,
+				const char *cert);
 	void (*change_context)(struct ssl_iostream *ssl_io,
 			       struct ssl_iostream_context *ctx);
 

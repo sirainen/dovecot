@@ -549,6 +549,14 @@ int openssl_iostream_handle_error(struct ssl_iostream *ssl_io, int ret,
 		}
 		return -1;
 	case SSL_ERROR_SSL:
+		if (ssl_io->cert_lookup_pending) {
+			unsigned long err_code = ERR_peek_error();
+			if (ERR_GET_LIB(err_code) == ERR_LIB_SSL &&
+			    ERR_GET_REASON(err_code) == SSL_R_NO_CERTIFICATE_RETURNED) {
+				openssl_iostream_clear_errors();
+				return 0; /* retry later */
+			}
+		}
 		errstr = t_strdup_printf("%s failed: %s",
 					 func_name, openssl_iostream_error());
 		errno = EINVAL;
@@ -681,6 +689,77 @@ openssl_iostream_set_sni_callback(struct ssl_iostream *ssl_io,
 {
 	ssl_io->sni_callback = callback;
 	ssl_io->sni_context = context;
+}
+
+static int openssl_internal_cert_cb(SSL *ssl, void *arg ATTR_UNUSED)
+{
+	struct ssl_iostream *ssl_io = SSL_get_ex_data(ssl, dovecot_ssl_extdata_index);
+
+	if (ssl_io->ctx->cert_callback != NULL && !ssl_io->cert_lookup_pending) {
+		ssl_io->cert_lookup_pending = TRUE;
+		ssl_io->ctx->cert_callback(ssl_io, ssl_io->ctx->cert_callback_context);
+		return 0;
+	}
+	/* either no callback or lookup is already pending */
+	return 1;
+}
+
+static void
+openssl_iostream_set_certificate_callback(struct ssl_iostream_context *ctx,
+					  ssl_iostream_certificate_callback_t *callback,
+					  void *context)
+{
+	ctx->cert_callback = callback;
+	ctx->cert_callback_context = context;
+	if (callback != NULL)
+		SSL_CTX_set_cert_cb(ctx->ssl_ctx, openssl_internal_cert_cb, NULL);
+	else
+		SSL_CTX_set_cert_cb(ctx->ssl_ctx, NULL, NULL);
+}
+
+static void
+openssl_iostream_set_certificate(struct ssl_iostream *ssl_io,
+				  const char *cert_pem)
+{
+	BIO *bio;
+	X509 *cert;
+	EVP_PKEY *key;
+
+	i_assert(ssl_io->cert_lookup_pending);
+
+	bio = BIO_new_mem_buf(cert_pem, -1);
+	if (bio == NULL)
+		i_fatal("BIO_new_mem_buf() failed: %s", openssl_iostream_error());
+
+	cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+	key = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+	BIO_free(bio);
+
+	if (cert == NULL || key == NULL) {
+		openssl_iostream_set_error(ssl_io, "No certificate/private key found from PEM");
+		ssl_io->handshake_failed = TRUE;
+	} else if (SSL_use_certificate(ssl_io->ssl, cert) != 1) {
+		openssl_iostream_set_error(ssl_io, openssl_iostream_use_certificate_error(cert_pem));
+		ssl_io->handshake_failed = TRUE;
+	} else if (SSL_use_PrivateKey(ssl_io->ssl, key) != 1) {
+		openssl_iostream_set_error(ssl_io, openssl_iostream_key_load_error());
+		ssl_io->handshake_failed = TRUE;
+	}
+
+	if (cert != NULL)
+		X509_free(cert);
+	if (key != NULL)
+		EVP_PKEY_free(key);
+
+	if (ssl_io->handshake_failed)
+		return;
+
+	ssl_io->cert_lookup_pending = FALSE;
+
+	/* handshake was paused, continue it now by notifying the input stream
+	   that it has data to be read. */
+	if (ssl_io->ssl_input->read_callback != NULL)
+		ssl_io->ssl_input->read_callback(ssl_io->ssl_input->context);
 }
 
 static void
@@ -1092,6 +1171,8 @@ static const struct iostream_ssl_vfuncs ssl_vfuncs = {
 	.handshake = openssl_iostream_handshake,
 	.set_handshake_callback = openssl_iostream_set_handshake_callback,
 	.set_sni_callback = openssl_iostream_set_sni_callback,
+	.set_certificate_callback = openssl_iostream_set_certificate_callback,
+	.set_certificate = openssl_iostream_set_certificate,
 	.change_context = openssl_iostream_change_context,
 
 	.set_log_prefix = openssl_iostream_set_log_prefix,

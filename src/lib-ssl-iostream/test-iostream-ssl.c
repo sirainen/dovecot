@@ -208,6 +208,12 @@ static int test_iostream_ssl_handshake_real(struct ssl_iostream_settings *server
 		destroy_test_endpoint(&server);
 		return -1;
 	}
+	if (server_set->cert.cert.content[0] == '\0') {
+		struct ssl_iostream_settings real_server_set;
+		ssl_iostream_test_settings_server(&real_server_set);
+		ssl_iostream_set_certificate_callback(server->ctx, iostream_ssl_test_cert_callback,
+						      &real_server_set);
+	}
 	if (ssl_iostream_context_init_client(client->set, &client->ctx,
 					     &error) < 0) {
 		i_error("client: %s", error);
@@ -271,6 +277,27 @@ static int test_iostream_ssl_handshake_real(struct ssl_iostream_settings *server
 	destroy_test_endpoint(&server);
 
 	return ret;
+}
+
+static void test_iostream_ssl_cert_callback(void)
+{
+	struct ssl_iostream_settings server_set, client_set;
+
+	test_begin("ssl: certificate callback");
+
+	ssl_iostream_test_settings_server(&server_set);
+	ssl_iostream_test_settings_client(&client_set);
+	client_set.allow_invalid_cert = TRUE;
+
+	/* remove cert from server settings */
+	server_set.cert.cert.content = "";
+	server_set.cert.key.content = "";
+
+	test_assert(test_iostream_ssl_handshake_real(&server_set, &client_set, "localhost") == 0);
+
+	ssl_iostream_context_cache_free();
+
+	test_end();
 }
 
 static void test_iostream_ssl_handshake(void)
@@ -555,6 +582,7 @@ int main(void)
 {
 	static void (*const test_functions[])(void) = {
 		test_iostream_ssl_handshake,
+		test_iostream_ssl_cert_callback,
 		test_iostream_ssl_get_buffer_avail_size,
 		test_iostream_ssl_small_packets,
 		NULL

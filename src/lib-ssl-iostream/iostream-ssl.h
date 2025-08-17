@@ -195,6 +195,21 @@ void ssl_iostream_set_handshake_callback(struct ssl_iostream *ssl_io,
 void ssl_iostream_set_sni_callback(struct ssl_iostream *ssl_io,
 				   ssl_iostream_sni_callback_t *callback,
 				   void *context);
+
+/* Called when server certificate is needed. The callback can be used to
+   asynchronously fetch the certificate. Once the certificate is fetched,
+   ssl_iostream_set_certificate() must be called to continue the handshake.
+   This is currently only implemented for OpenSSL. */
+typedef void ssl_iostream_certificate_callback_t(struct ssl_iostream *ssl_io,
+						 void *context);
+void ssl_iostream_set_certificate_callback(struct ssl_iostream_context *ctx,
+					   ssl_iostream_certificate_callback_t *callback,
+					   void *context);
+/* Provide the certificate to the SSL iostream. This must be called only after
+   the certificate callback has been called. */
+void ssl_iostream_set_certificate(struct ssl_iostream *ssl_io,
+				  const char *cert);
+
 void ssl_iostream_change_context(struct ssl_iostream *ssl_io,
 				 struct ssl_iostream_context *ctx);
 

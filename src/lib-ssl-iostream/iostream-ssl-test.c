@@ -169,3 +169,13 @@ void ssl_iostream_test_settings_client(struct ssl_iostream_settings *test_set)
 	test_set->ca.content = test_ca_cert;
 	test_set->skip_crl_check = TRUE;
 }
+
+void iostream_ssl_test_cert_callback(struct ssl_iostream *ssl_io,
+				     void *context)
+{
+	const struct ssl_iostream_settings *server_set = context;
+	string_t *cert_pem = t_str_new(1024);
+	str_append(cert_pem, server_set->cert.cert.content);
+	str_append(cert_pem, server_set->cert.key.content);
+	ssl_iostream_set_certificate(ssl_io, str_c(cert_pem));
+}

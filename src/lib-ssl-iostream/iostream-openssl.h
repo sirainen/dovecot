@@ -31,6 +31,9 @@ struct ssl_iostream_context {
 
 	int username_nid;
 
+	ssl_iostream_certificate_callback_t *cert_callback;
+	void *cert_callback_context;
+
 	bool client_ctx:1;
 	bool verify_remote_cert:1;
 	bool allow_invalid_cert:1;
@@ -80,6 +83,8 @@ struct ssl_iostream {
 	bool ostream_flush_waiting_input:1;
 	bool closed:1;
 	bool destroyed:1;
+	/* certificate lookup is pending */
+	bool cert_lookup_pending:1;
 };
 
 extern int dovecot_ssl_extdata_index;

@@ -252,6 +252,21 @@ void ssl_iostream_set_sni_callback(struct ssl_iostream *ssl_io,
 	ssl_vfuncs->set_sni_callback(ssl_io, callback, context);
 }
 
+void ssl_iostream_set_certificate_callback(struct ssl_iostream_context *ctx,
+					   ssl_iostream_certificate_callback_t *callback,
+					   void *context)
+{
+	if (ssl_vfuncs->set_certificate_callback != NULL)
+		ssl_vfuncs->set_certificate_callback(ctx, callback, context);
+}
+
+void ssl_iostream_set_certificate(struct ssl_iostream *ssl_io,
+				  const char *cert)
+{
+	if (ssl_vfuncs->set_certificate != NULL)
+		ssl_vfuncs->set_certificate(ssl_io, cert);
+}
+
 void ssl_iostream_change_context(struct ssl_iostream *ssl_io,
 				 struct ssl_iostream_context *ctx)
 {
