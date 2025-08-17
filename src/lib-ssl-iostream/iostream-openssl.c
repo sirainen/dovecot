@@ -549,14 +549,6 @@ int openssl_iostream_handle_error(struct ssl_iostream *ssl_io, int ret,
 		}
 		return -1;
 	case SSL_ERROR_SSL:
-		if (ssl_io->cert_lookup_pending) {
-			unsigned long err_code = ERR_peek_error();
-			if (ERR_GET_LIB(err_code) == ERR_LIB_SSL &&
-			    ERR_GET_REASON(err_code) == SSL_R_NO_CERTIFICATE_RETURNED) {
-				openssl_iostream_clear_errors();
-				return 0; /* retry later */
-			}
-		}
 		errstr = t_strdup_printf("%s failed: %s",
 					 func_name, openssl_iostream_error());
 		errno = EINVAL;
@@ -698,7 +690,7 @@ static int openssl_internal_cert_cb(SSL *ssl, void *arg ATTR_UNUSED)
 	if (ssl_io->ctx->cert_callback != NULL && !ssl_io->cert_lookup_pending) {
 		ssl_io->cert_lookup_pending = TRUE;
 		ssl_io->ctx->cert_callback(ssl_io, ssl_io->ctx->cert_callback_context);
-		return 0;
+		return -1;
 	}
 	/* either no callback or lookup is already pending */
 	return 1;
@@ -719,7 +711,7 @@ openssl_iostream_set_certificate_callback(struct ssl_iostream_context *ctx,
 
 static void
 openssl_iostream_set_certificate(struct ssl_iostream *ssl_io,
-				  const char *cert_pem)
+				 const char *cert_pem)
 {
 	BIO *bio;
 	X509 *cert;
@@ -758,8 +750,7 @@ openssl_iostream_set_certificate(struct ssl_iostream *ssl_io,
 
 	/* handshake was paused, continue it now by notifying the input stream
 	   that it has data to be read. */
-	if (ssl_io->ssl_input->read_callback != NULL)
-		ssl_io->ssl_input->read_callback(ssl_io->ssl_input->context);
+	i_stream_set_input_pending(ssl_io->ssl_input, TRUE);
 }
 
 static void
