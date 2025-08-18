@@ -33,12 +33,47 @@ struct sqlite_result {
 	sqlite3_stmt *stmt;
 	unsigned int cols;
 	const char **row;
+	bool prepared_statement;
 };
 
 struct sqlite_transaction_context {
 	struct sql_transaction_context ctx;
 	int rc;
 	char *error;
+};
+
+struct sqlite_prepared_statement {
+	struct sql_prepared_statement prep_stmt;
+	sqlite3_stmt *stmt;
+};
+
+enum sqlite_sql_arg_type {
+	SQLITE_SQL_ARG_TYPE_STR,
+	SQLITE_SQL_ARG_TYPE_BINARY,
+	SQLITE_SQL_ARG_TYPE_INT64,
+	SQLITE_SQL_ARG_TYPE_DOUBLE,
+	SQLITE_SQL_ARG_TYPE_UUID,
+};
+
+struct sqlite_sql_arg {
+	/* column_idx is 1-based */
+	unsigned int column_idx;
+
+	enum sqlite_sql_arg_type type;
+	const char *value_str;
+	const void *value_binary;
+	size_t value_binary_size;
+	int64_t value_int64;
+	double value_double;
+	guid_128_t value_uuid;
+};
+
+struct sqlite_statement {
+	struct sql_statement stmt;
+	sqlite3_stmt *p_stmt;
+	char *query;
+	ARRAY(struct sqlite_sql_arg) args;
+	bool log_expanded;
 };
 
 struct sqlite_settings {
@@ -385,13 +420,18 @@ static void driver_sqlite_result_free(struct sql_result *_result)
 		return;
 
 	if (result->stmt != NULL) {
-		rc = sqlite3_finalize(result->stmt);
-		if (rc == SQLITE_NOMEM) {
-			i_fatal_status(FATAL_OUTOFMEM, "finalize failed: %s (%d)",
-				       sqlite3_errmsg(db->sqlite), rc);
-		} else if (rc != SQLITE_OK) {
-			e_warning(_result->event, "finalize failed: %s (%d)",
-				  sqlite3_errmsg(db->sqlite), rc);
+		if (result->prepared_statement) {
+			sqlite3_reset(result->stmt);
+			sqlite3_clear_bindings(result->stmt);
+		} else {
+			rc = sqlite3_finalize(result->stmt);
+			if (rc == SQLITE_NOMEM) {
+				i_fatal_status(FATAL_OUTOFMEM, "finalize failed: %s (%d)",
+					       sqlite3_errmsg(db->sqlite), rc);
+			} else if (rc != SQLITE_OK) {
+				e_warning(_result->event, "finalize failed: %s (%d)",
+					  sqlite3_errmsg(db->sqlite), rc);
+			}
 		}
 		i_free(result->row);
 	}
@@ -670,9 +710,364 @@ driver_sqlite_escape_blob(struct sql_db *_db ATTR_UNUSED,
 	return str_c(str);
 }
 
+static struct sql_statement *
+driver_sqlite_statement_init(struct sql_db *db ATTR_UNUSED,
+			     const char *query_template)
+{
+	pool_t pool = pool_alloconly_create("sqlite statement", 1024);
+	struct sqlite_statement *stmt = p_new(pool, struct sqlite_statement, 1);
+
+	stmt->stmt.pool = pool;
+	stmt->query = p_strdup(pool, query_template);
+	stmt->log_expanded = TRUE;
+	if (strchr(query_template, '?') != NULL)
+		p_array_init(&stmt->args, pool, 8);
+	return &stmt->stmt;
+}
+
+static struct sql_statement *
+driver_sqlite_statement_init_prepared(struct sql_prepared_statement *_prep_stmt)
+{
+	struct sqlite_prepared_statement *prep =
+		(struct sqlite_prepared_statement *)_prep_stmt;
+	pool_t pool = pool_alloconly_create("sqlite prepared statement", 1024);
+	struct sqlite_statement *stmt = p_new(pool, struct sqlite_statement, 1);
+
+	stmt->stmt.pool = pool;
+	stmt->p_stmt = prep->stmt;
+	stmt->log_expanded = TRUE;
+
+	/* Reset the prepared statement, so it can be reused. */
+	if (stmt->p_stmt != NULL) {
+		sqlite3_clear_bindings(stmt->p_stmt);
+		sqlite3_reset(stmt->p_stmt);
+	}
+
+	return &stmt->stmt;
+}
+
+static void
+driver_sqlite_statement_abort(struct sql_statement *_stmt ATTR_UNUSED)
+{
+	/* nothing to do, the pool is freed by caller */
+}
+
+static void
+driver_sqlite_statement_bind_str(struct sql_statement *_stmt,
+				 unsigned int column_idx,
+				 const char *value)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+
+	if (stmt->p_stmt != NULL) {
+		sqlite3_bind_text(stmt->p_stmt, column_idx, value, -1,
+				  SQLITE_TRANSIENT);
+	} else {
+		struct sqlite_sql_arg *arg;
+
+		i_assert(array_is_created(&stmt->args));
+		arg = array_append_space(&stmt->args);
+		arg->column_idx = column_idx;
+		arg->type = SQLITE_SQL_ARG_TYPE_STR;
+		arg->value_str = p_strdup(_stmt->pool, value);
+	}
+}
+
+static void
+driver_sqlite_statement_bind_binary(struct sql_statement *_stmt,
+				    unsigned int column_idx,
+				    const void *value, size_t value_size)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+
+	if (stmt->p_stmt != NULL) {
+		sqlite3_bind_blob(stmt->p_stmt, column_idx, value, value_size,
+				  SQLITE_TRANSIENT);
+	} else {
+		struct sqlite_sql_arg *arg;
+
+		i_assert(array_is_created(&stmt->args));
+		arg = array_append_space(&stmt->args);
+		arg->column_idx = column_idx;
+		arg->type = SQLITE_SQL_ARG_TYPE_BINARY;
+		arg->value_binary = p_memdup(_stmt->pool, value, value_size);
+		arg->value_binary_size = value_size;
+	}
+}
+
+static void
+driver_sqlite_statement_bind_int64(struct sql_statement *_stmt,
+				   unsigned int column_idx,
+				   int64_t value)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+
+	if (stmt->p_stmt != NULL) {
+		sqlite3_bind_int64(stmt->p_stmt, column_idx, value);
+	} else {
+		struct sqlite_sql_arg *arg;
+
+		i_assert(array_is_created(&stmt->args));
+		arg = array_append_space(&stmt->args);
+		arg->column_idx = column_idx;
+		arg->type = SQLITE_SQL_ARG_TYPE_INT64;
+		arg->value_int64 = value;
+	}
+}
+
+static void
+driver_sqlite_statement_bind_double(struct sql_statement *_stmt,
+				    unsigned int column_idx,
+				    double value)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+
+	if (stmt->p_stmt != NULL) {
+		sqlite3_bind_double(stmt->p_stmt, column_idx, value);
+	} else {
+		struct sqlite_sql_arg *arg;
+
+		i_assert(array_is_created(&stmt->args));
+		arg = array_append_space(&stmt->args);
+		arg->column_idx = column_idx;
+		arg->type = SQLITE_SQL_ARG_TYPE_DOUBLE;
+		arg->value_double = value;
+	}
+}
+
+static void
+driver_sqlite_statement_bind_uuid(struct sql_statement *_stmt,
+				  unsigned int column_idx, const guid_128_t uuid)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+
+	if (stmt->p_stmt != NULL) {
+		const char *value = guid_128_to_string(uuid);
+		sqlite3_bind_text(stmt->p_stmt, column_idx, value, -1,
+				  SQLITE_TRANSIENT);
+	} else {
+		struct sqlite_sql_arg *arg;
+
+		i_assert(array_is_created(&stmt->args));
+		arg = array_append_space(&stmt->args);
+		arg->column_idx = column_idx;
+		arg->type = SQLITE_SQL_ARG_TYPE_UUID;
+		memcpy(arg->value_uuid, uuid, sizeof(guid_128_t));
+	}
+}
+
+static void
+driver_sqlite_statement_bind_args(struct sqlite_statement *stmt)
+{
+	const struct sqlite_sql_arg *arg;
+
+	if (!array_is_created(&stmt->args))
+		return;
+
+	array_foreach(&stmt->args, arg) {
+		switch (arg->type) {
+		case SQLITE_SQL_ARG_TYPE_STR:
+			sqlite3_bind_text(stmt->p_stmt, arg->column_idx,
+					  arg->value_str, -1, SQLITE_STATIC);
+			break;
+		case SQLITE_SQL_ARG_TYPE_BINARY:
+			sqlite3_bind_blob(stmt->p_stmt, arg->column_idx,
+					  arg->value_binary, arg->value_binary_size,
+					  SQLITE_STATIC);
+			break;
+		case SQLITE_SQL_ARG_TYPE_INT64:
+			sqlite3_bind_int64(stmt->p_stmt, arg->column_idx,
+					   arg->value_int64);
+			break;
+		case SQLITE_SQL_ARG_TYPE_DOUBLE:
+			sqlite3_bind_double(stmt->p_stmt, arg->column_idx,
+					    arg->value_double);
+			break;
+		case SQLITE_SQL_ARG_TYPE_UUID:
+			sqlite3_bind_text(stmt->p_stmt, arg->column_idx,
+					  guid_128_to_string(arg->value_uuid),
+					  -1, SQLITE_TRANSIENT);
+			break;
+		}
+	}
+}
+
+static struct sql_result *
+driver_sqlite_statement_query_s(struct sql_statement *_stmt)
+{
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+	struct sql_db *_db = _stmt->db;
+	struct sqlite_db *db = container_of(_db, struct sqlite_db, api);
+	struct sqlite_result *result;
+	struct event *event;
+	const char *query_for_log;
+
+	result = i_new(struct sqlite_result, 1);
+	result->api.db = _db;
+	event = event_create(_db->event);
+	result->api.event = event;
+
+	query_for_log = sql_statement_get_log_query(_stmt);
+
+	if (driver_sqlite_connect(_db) < 0) {
+		driver_sqlite_result_log(&result->api, query_for_log);
+		result->api = driver_sqlite_error_result;
+		result->stmt = NULL;
+	} else {
+		if (stmt->p_stmt == NULL) {
+			/* one-shot statement */
+			i_assert(stmt->query != NULL);
+			db->rc = sqlite3_prepare_v2(db->sqlite, stmt->query, -1,
+						    &stmt->p_stmt, NULL);
+			if (db->rc == SQLITE_OK)
+				driver_sqlite_statement_bind_args(stmt);
+		} else {
+			/* already prepared */
+			db->rc = SQLITE_OK;
+		}
+
+		driver_sqlite_result_log(&result->api, query_for_log);
+
+		if (db->rc == SQLITE_OK) {
+			result->api = driver_sqlite_result;
+			result->stmt = stmt->p_stmt;
+			result->cols = sqlite3_column_count(result->stmt);
+			if (result->cols > 0)
+				result->row = i_new(const char *, result->cols);
+		} else {
+			result->api = driver_sqlite_error_result;
+			result->stmt = NULL;
+		}
+	}
+
+	result->api.db = _db;
+	result->api.refcount = 1;
+	result->api.event = event;
+	result->prepared_statement = stmt->query == NULL;
+
+	if (stmt->query != NULL) {
+		/* one-shot query. the statement is finalized when result is
+		   freed. we just NULL our reference to it. */
+		stmt->p_stmt = NULL;
+	}
+	sql_statement_unref(&_stmt);
+	return &result->api;
+}
+
+static void
+driver_sqlite_statement_query(struct sql_statement *_stmt,
+			      sql_query_callback_t *callback, void *context)
+{
+	struct sql_result *result;
+
+	result = driver_sqlite_statement_query_s(_stmt);
+	result->callback = TRUE;
+	callback(result, context);
+	result->callback = FALSE;
+	sql_result_unref(result);
+}
+
+static void
+driver_sqlite_update_stmt(struct sql_transaction_context *_ctx,
+			  struct sql_statement *_stmt,
+			  unsigned int *affected_rows)
+{
+	struct sqlite_transaction_context *ctx =
+		(struct sqlite_transaction_context *)_ctx;
+	struct sqlite_statement *stmt = (struct sqlite_statement *)_stmt;
+	struct sqlite_db *db = (struct sqlite_db *)_ctx->db;
+	int rc;
+
+	if (ctx->rc != SQLITE_OK) {
+		sql_statement_unref(&_stmt);
+		return;
+	}
+
+	if (stmt->p_stmt == NULL) {
+		/* one-shot statement */
+		i_assert(stmt->query != NULL);
+		rc = sqlite3_prepare_v2(db->sqlite, stmt->query, -1,
+					&stmt->p_stmt, NULL);
+		if (rc == SQLITE_OK)
+			driver_sqlite_statement_bind_args(stmt);
+	} else {
+		/* already prepared */
+		rc = SQLITE_OK;
+	}
+
+	if (rc == SQLITE_OK) {
+		rc = sqlite3_step(stmt->p_stmt);
+		if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+			/* error. ROW is for e.g. RETURNING which we don't really
+			   support but it's not an error. */
+		} else {
+			rc = SQLITE_OK;
+		}
+	}
+
+	if (stmt->query != NULL) {
+		/* one-shot, finalize */
+		if (stmt->p_stmt != NULL)
+			sqlite3_finalize(stmt->p_stmt);
+		stmt->p_stmt = NULL;
+	} else {
+		if (stmt->p_stmt != NULL)
+			sqlite3_reset(stmt->p_stmt);
+	}
+
+	if (rc != SQLITE_OK) {
+		ctx->rc = rc;
+		if (ctx->error == NULL)
+			ctx->error = i_strdup(sqlite3_errmsg(db->sqlite));
+	} else if (affected_rows != NULL) {
+		*affected_rows = sqlite3_changes(db->sqlite);
+	}
+
+	sql_statement_unref(&_stmt);
+}
+
+static struct sql_prepared_statement *
+driver_sqlite_prepared_statement_init(struct sql_db *_db,
+					const char *query_template)
+{
+	struct sqlite_db *db = (struct sqlite_db *)_db;
+	struct sqlite_prepared_statement *prep;
+	int rc;
+
+	if (driver_sqlite_connect(_db) < 0)
+		return NULL;
+
+	prep = i_new(struct sqlite_prepared_statement, 1);
+	prep->prep_stmt.db = _db;
+	prep->prep_stmt.refcount = 1;
+	prep->prep_stmt.query_template = i_strdup(query_template);
+
+	rc = sqlite3_prepare_v2(db->sqlite, query_template, -1, &prep->stmt, NULL);
+	if (rc != SQLITE_OK) {
+		e_error(_db->event, "sqlite: Couldn't prepare statement '%s': %s",
+			query_template, sqlite3_errmsg(db->sqlite));
+		i_free(prep->prep_stmt.query_template);
+		i_free(prep);
+		return NULL;
+	}
+	return &prep->prep_stmt;
+}
+
+static void
+driver_sqlite_prepared_statement_deinit(struct sql_prepared_statement *_prep_stmt)
+{
+	struct sqlite_prepared_statement *prep =
+		(struct sqlite_prepared_statement *)_prep_stmt;
+
+	if (prep->stmt != NULL)
+		sqlite3_finalize(prep->stmt);
+	i_free(prep->prep_stmt.query_template);
+	i_free(prep);
+}
+
 const struct sql_db driver_sqlite_db = {
 	.name = "sqlite",
-	.flags =
+	.flags = SQL_DB_FLAG_PREP_STATEMENTS |
 #if SQLITE_VERSION_NUMBER >= 3024000
 		SQL_DB_FLAG_ON_CONFLICT_DO |
 #endif
@@ -696,6 +1091,20 @@ const struct sql_db driver_sqlite_db = {
 		.update = driver_sqlite_update,
 
 		.escape_blob = driver_sqlite_escape_blob,
+
+		.statement_init = driver_sqlite_statement_init,
+		.statement_init_prepared = driver_sqlite_statement_init_prepared,
+		.statement_abort = driver_sqlite_statement_abort,
+		.statement_bind_str = driver_sqlite_statement_bind_str,
+		.statement_bind_binary = driver_sqlite_statement_bind_binary,
+		.statement_bind_int64 = driver_sqlite_statement_bind_int64,
+		.statement_bind_double = driver_sqlite_statement_bind_double,
+		.statement_bind_uuid = driver_sqlite_statement_bind_uuid,
+		.statement_query = driver_sqlite_statement_query,
+		.statement_query_s = driver_sqlite_statement_query_s,
+		.update_stmt = driver_sqlite_update_stmt,
+		.prepared_statement_init = driver_sqlite_prepared_statement_init,
+		.prepared_statement_deinit = driver_sqlite_prepared_statement_deinit,
 	}
 };
 
