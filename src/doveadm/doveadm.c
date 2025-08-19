@@ -252,6 +252,44 @@ static bool doveadm_has_subcommands(const char *cmd_name)
 	return FALSE;
 }
 
+static const char *
+find_longest_cmd_prefix(int argc, const char *const argv[])
+{
+	const struct doveadm_cmd_ver2 *cmd;
+	const char *best_prefix = "";
+	unsigned int i;
+
+	if (argc == 0)
+		return "";
+
+	string_t *prefix = t_str_new(128);
+	str_append(prefix, argv[0]);
+
+	for (i = 0; ; i++) {
+		bool found = FALSE;
+		array_foreach(&doveadm_cmds_ver2, cmd) {
+			if (strncmp(cmd->name, str_c(prefix), str_len(prefix)) == 0 &&
+			    (cmd->name[str_len(prefix)] == ' ' ||
+			     cmd->name[str_len(prefix)] == '\0')) {
+				found = TRUE;
+				break;
+			}
+		}
+
+		if (found) {
+			best_prefix = str_c(prefix);
+		} else {
+			break;
+		}
+		if (i+1 >= (unsigned int)argc)
+			break;
+
+		str_append_c(prefix, ' ');
+		str_append(prefix, argv[i+1]);
+	}
+	return t_strdup(best_prefix);
+}
+
 static struct doveadm_cmd_ver2 *doveadm_cmdline_commands_ver2[] = {
 	&doveadm_cmd_config,
 	&doveadm_cmd_dump,
@@ -390,9 +428,12 @@ int main(int argc, char *argv[])
 		if (cctx->help_requested == DOVEADM_CMD_VER2_HELP_ARGUMENT &&
 		    cctx->cmd != NULL) {
 			print_usage_and_exit(stdout, cctx->cmd, EX_OK);
+		} else {
+			const char *prefix =
+				find_longest_cmd_prefix(argc, (const char **)argv);
+			if (doveadm_has_subcommands(prefix))
+				usage_prefix(out, prefix, exit_code);
 		}
-		if (doveadm_has_subcommands(cmd_name))
-			usage_prefix(out, cmd_name, exit_code);
 
 		if (doveadm_has_unloaded_plugin(cmd_name)) {
 			i_fatal("Unknown command '%s', but plugin %s exists. "

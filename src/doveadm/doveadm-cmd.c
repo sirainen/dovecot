@@ -59,10 +59,11 @@ const struct doveadm_cmd_ver2 *doveadm_cmd_find_ver2(const char *cmd_name)
 
 const struct doveadm_cmd_ver2 *
 doveadm_cmdline_find_with_args(const char *cmd_name, int *argc,
-			       const char *const *argv[])
+			       const char *const **argv)
 {
 	int i, k;
-	const struct doveadm_cmd_ver2 *cmd;
+	const struct doveadm_cmd_ver2 *cmd, *best_cmd = NULL;
+	unsigned int best_k = 0;
 	const char *cptr;
 
 	for (i = 0; i < *argc; i++) {
@@ -93,14 +94,20 @@ doveadm_cmdline_find_with_args(const char *cmd_name, int *argc,
 		}
 		/* name was fully consumed */
 		if (*cptr == '\0') {
-			if (k > 1) {
-				*argc -= k-1;
-				*argv += k-1;
+			if ((unsigned int)k > best_k) {
+				best_cmd = cmd;
+				best_k = k;
 			}
-			return cmd;
 		}
 	}
 
+	if (best_cmd != NULL) {
+		if (best_k > 1) {
+			*argc -= best_k - 1;
+			*argv += best_k - 1;
+		}
+		return best_cmd;
+	}
 	return NULL;
 }
 
