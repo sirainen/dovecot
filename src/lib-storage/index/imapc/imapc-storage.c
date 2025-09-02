@@ -437,6 +437,11 @@ imapc_storage_create(struct mail_storage *_storage,
 	}
 	storage->client->_storage = storage;
 	storage->set = storage->client->set;
+
+	if ((storage->set->parsed_features &
+	     IMAPC_FEATURE_DSYNC_NO_ATTACHMENT_FLAGS_ON_FETCH) != 0)
+		_storage->set->no_attachment_flags_on_fetch = TRUE;
+
 	p_array_init(&storage->remote_namespaces, _storage->pool, 4);
 	if (!IMAPC_HAS_FEATURE(storage, IMAPC_FEATURE_NO_FETCH_BODYSTRUCTURE)) {
 		_storage->nonbody_access_fields |=
