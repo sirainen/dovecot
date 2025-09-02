@@ -310,6 +310,7 @@ imapc_mail_get_stream(struct mail *_mail, bool get_body,
 		/* we've fetched the header, but we need the body now too */
 		index_mail_close_streams(&mail->imail);
 		mail->header_fetched = FALSE;
+		data->stream = NULL;
 		/* don't re-use any cached header sizes. we may be
 		   intentionally downloading the full body because the header
 		   wasn't returned correctly (e.g. pop3-migration does this) */
