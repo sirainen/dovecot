@@ -123,10 +123,6 @@ index_mail_want_attachment_keywords_on_fetch(struct index_mail *mail)
 	const struct mail_storage_settings *mail_set =
 		mail->mail.mail.box->storage->set;
 
-	if (mail->mail.mail.box->storage->user->dsyncing)
-		return FALSE;
-	if (mail_set->no_attachment_flags_on_fetch)
-		return FALSE;
 	return mail_set->parsed_mail_attachment_detection_add_flags &&
 		!mail_set->parsed_mail_attachment_detection_no_flags_on_fetch &&
 		!mail_has_attachment_keywords(&mail->mail.mail);

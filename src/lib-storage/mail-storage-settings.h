@@ -108,7 +108,6 @@ struct mail_storage_settings {
 	bool parsed_mail_attachment_exclude_inlined;
 	bool parsed_mail_attachment_detection_add_flags;
 	bool parsed_mail_attachment_detection_no_flags_on_fetch;
-	bool no_attachment_flags_on_fetch;
 	/* Filename part of mailbox_list_index_prefix */
 	const char *parsed_list_index_fname;
 	/* Directory part of mailbox_list_index_prefix. NULL defaults to index

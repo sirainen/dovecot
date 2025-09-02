@@ -66,7 +66,6 @@ struct dsync_ibc_settings {
 	const char *sync_flags;
 	/* Hashed headers */
 	const char *const *hashed_headers;
-	const char *const *imapc_features;
 
 	char alt_char;
 	enum dsync_brain_sync_type sync_type;

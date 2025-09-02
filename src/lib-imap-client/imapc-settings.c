@@ -119,7 +119,6 @@ static const struct imapc_feature_list imapc_feature_list[] = {
 	{ "no-metadata", IMAPC_FEATURE_NO_METADATA },
 	{ "no-qresync", IMAPC_FEATURE_NO_QRESYNC },
 	{ "no-imap4rev2", IMAPC_FEATURE_NO_IMAP4REV2 },
-	{ "dsync-no-attachment-flags-on-fetch", IMAPC_FEATURE_DSYNC_NO_ATTACHMENT_FLAGS_ON_FETCH },
 	{ NULL, 0 }
 };
 

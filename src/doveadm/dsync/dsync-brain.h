@@ -83,7 +83,6 @@ struct dsync_brain_settings {
 	const char *sync_flag;
 	/* Headers to hash (defaults to Date, Message-ID) */
 	const char *const *hashed_headers;
-	const char *const *imapc_features;
 
 	/* If non-zero, use dsync lock file for this user */
 	unsigned int lock_timeout_secs;

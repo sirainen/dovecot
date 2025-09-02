@@ -748,10 +748,6 @@ dsync_ibc_stream_send_handshake(struct dsync_ibc *_ibc,
 		dsync_serializer_encode_add(encoder, "no_notify", "");
 	if ((set->brain_flags & DSYNC_BRAIN_FLAG_EMPTY_HDR_WORKAROUND) != 0)
 		dsync_serializer_encode_add(encoder, "empty_hdr_workaround", "");
-	if (set->imapc_features != NULL) {
-		dsync_serializer_encode_add(encoder, "imapc_features",
-					    t_strarray_join(set->imapc_features, " "));
-	}
 	/* this can be NULL in slave */
 	string_t *str2 = t_str_new(32);
 	if (set->hashed_headers != NULL) {
@@ -886,8 +882,6 @@ dsync_ibc_stream_recv_handshake(struct dsync_ibc *_ibc,
 		set->brain_flags |= DSYNC_BRAIN_FLAG_NO_NOTIFY;
 	if (dsync_deserializer_decode_try(decoder, "empty_hdr_workaround", &value))
 		set->brain_flags |= DSYNC_BRAIN_FLAG_EMPTY_HDR_WORKAROUND;
-	if (dsync_deserializer_decode_try(decoder, "imapc_features", &value))
-		set->imapc_features = (const void *)p_strsplit_spaces(pool, value, " ");
 	if (dsync_deserializer_decode_try(decoder, "hashed_headers", &value))
 		set->hashed_headers = (const char*const*)p_strsplit_tabescaped(pool, value);
 	set->hdr_hash_v2 = ibc->minor_version >= DSYNC_PROTOCOL_MINOR_HAVE_HDR_HASH_V2;
