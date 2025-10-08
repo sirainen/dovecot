@@ -5,6 +5,7 @@
 #include "hash.h"
 #include "llist.h"
 #include "str.h"
+#include "strfuncs.h"
 #include "strescape.h"
 #include "event-filter-private.h"
 #include "wildcard-match.h"
@@ -170,6 +171,7 @@ struct settings_apply_ctx {
 	ARRAY(enum set_seen_type) set_seen;
 	ARRAY(struct settings_apply_override) overrides;
 	ARRAY_TYPE(settings_group) include_groups;
+	ARRAY_TYPE(settings_group) override_groups;
 
 	string_t *str;
 	struct var_expand_params var_params;
@@ -188,6 +190,11 @@ static struct event_filter event_filter_match_never, event_filter_match_always;
 #define EVENT_FILTER_MATCH_ALWAYS (&event_filter_match_always)
 #define EVENT_FILTER_MATCH_NEVER (&event_filter_match_never)
 
+static int
+settings_apply_override_groups(struct settings_apply_ctx *ctx,
+			       struct settings_mmap *mmap,
+			       struct settings_mmap_block *block,
+			       const char **error_r);
 static int
 settings_instance_override(struct settings_apply_ctx *ctx,
 			   struct settings_mmap_event_filter *set_filter,
@@ -1180,17 +1187,32 @@ settings_mmap_apply_filter(struct settings_apply_ctx *ctx,
 		ctx->seen_filter = TRUE;
 
 	array_clear(&ctx->include_groups);
+	array_clear(&ctx->override_groups);
 	for (uint32_t j = 0; j < include_count; j++) {
-		struct settings_group *include_group =
-			array_append_space(&ctx->include_groups);
-		include_group->label =
-			CONST_PTR_OFFSET(mmap->mmap_base, filter_offset);
-		filter_offset += strlen(include_group->label) + 1;
+		const char *label, *name;
+		struct settings_group *include_group;
 
-		include_group->name =
-			CONST_PTR_OFFSET(mmap->mmap_base, filter_offset);
-		filter_offset += strlen(include_group->name) + 1;
+		label = CONST_PTR_OFFSET(mmap->mmap_base, filter_offset);
+		filter_offset += strlen(label) + 1;
+		name = CONST_PTR_OFFSET(mmap->mmap_base, filter_offset);
+		filter_offset += strlen(name) + 1;
+
+		const char *override_suffix = ":override";
+		if (str_ends_with(label, override_suffix)) {
+			include_group = array_append_space(&ctx->override_groups);
+			include_group->label = t_strndup(label, strlen(label) -
+							 strlen(override_suffix));
+			include_group->name = name;
+		} else {
+			include_group = array_append_space(&ctx->include_groups);
+			include_group->label = label;
+			include_group->name = name;
+		}
 	}
+
+	if (settings_apply_override_groups(ctx, mmap, block, error_r) < 0)
+		return -1;
+
 	/* Apply overrides specific to this filter before the
 	   filter settings themselves. For base settings the
 	   filter is EVENT_FILTER_MATCH_ALWAYS, which applies
@@ -1223,11 +1245,14 @@ settings_mmap_apply_filter(struct settings_apply_ctx *ctx,
 	return 0;
 }
 
-static struct event *settings_group_event_create(struct settings_apply_ctx *ctx)
+static struct event *
+settings_groups_event_create(struct settings_apply_ctx *ctx,
+			     const ARRAY_TYPE(settings_group) *groups)
 {
 	struct event *event = event_create(ctx->event);
 	const struct settings_group *include_group;
-	array_foreach(&ctx->include_groups, include_group) {
+
+	array_foreach(groups, include_group) {
 		/* Add @<group label>/<group name> to matching filters and
 		   restart the filter processing. */
 		const char *filter_value = t_strdup_printf(
@@ -1237,6 +1262,58 @@ static struct event *settings_group_event_create(struct settings_apply_ctx *ctx)
 				     filter_value);
 	}
 	return event;
+}
+
+static int
+settings_apply_override_groups(struct settings_apply_ctx *ctx,
+			       struct settings_mmap *mmap,
+			       struct settings_mmap_block *block,
+			       const char **error_r)
+{
+	struct event *event = NULL;
+	const struct failure_context failure_ctx = {
+		.type = LOG_TYPE_DEBUG,
+	};
+
+	if (array_is_empty(&ctx->override_groups))
+		return 0;
+
+	/* All group filters are at the end. When we see a non-group filter,
+	   we can stop. */
+	int ret = 0;
+	for (uint32_t i = block->filter_count; i > 0; ) {
+		i--;
+		uint32_t event_filter_idx;
+		if (settings_mmap_get_filter_idx(mmap, block, i,
+						 &event_filter_idx, error_r) < 0) {
+			ret = -1;
+			break;
+		}
+
+		if (!mmap->event_filters[event_filter_idx].is_group)
+			break;
+
+		struct settings_mmap_event_filter *set_filter =
+			&mmap->event_filters[event_filter_idx];
+		i_assert(set_filter->filter != EVENT_FILTER_MATCH_ALWAYS);
+		if (set_filter->filter == EVENT_FILTER_MATCH_NEVER)
+			continue;
+
+		if (event == NULL) T_BEGIN {
+			event = settings_groups_event_create(ctx, &ctx->override_groups);
+		} T_END;
+		if (event_filter_match(set_filter->filter, event, &failure_ctx)) {
+			if (settings_mmap_apply_filter(ctx, block, i,
+						       set_filter,
+						       error_r) < 0) {
+				ret = -1;
+				break;
+			}
+		}
+	}
+
+	event_unref(&event);
+	return ret;
 }
 
 static int
@@ -1276,7 +1353,7 @@ settings_apply_groups(struct settings_apply_ctx *ctx,
 			continue;
 
 		if (event == NULL) T_BEGIN {
-			event = settings_group_event_create(ctx);
+			event = settings_groups_event_create(ctx, &ctx->include_groups);
 		} T_END;
 		if (event_filter_match(set_filter->filter, event, &failure_ctx)) {
 			if (settings_mmap_apply_filter(ctx, block, i,
@@ -2356,8 +2433,18 @@ settings_instance_override(struct settings_apply_ctx *ctx,
 		   potentially changed it. */
 		const char *key = set->key, *value;
 		if (key[0] == SETTINGS_INCLUDE_GROUP_PREFIX) {
-			settings_include_group_add_or_update(
-				&ctx->include_groups, set);
+			const char *override_suffix = ":override";
+			if (str_ends_with(key, override_suffix)) {
+				struct settings_override new_set = *set;
+
+				new_set.key = t_strndup(key, strlen(key) -
+							strlen(override_suffix));
+				settings_include_group_add_or_update(
+					&ctx->override_groups, &new_set);
+			} else {
+				settings_include_group_add_or_update(
+					&ctx->include_groups, set);
+			}
 			continue;
 		}
 		ret = settings_override_get_value(ctx, set, &key,
@@ -2528,6 +2615,7 @@ settings_instance_get(struct settings_apply_ctx *ctx,
 	*pool_p = set_pool;
 
 	t_array_init(&ctx->include_groups, 4);
+	t_array_init(&ctx->override_groups, 2);
 	ctx->str = str_new(default_pool, 256);
 	i_array_init(&ctx->set_seen, 64);
 	if ((ctx->flags & SETTINGS_GET_FLAG_NO_EXPAND) == 0 &&
