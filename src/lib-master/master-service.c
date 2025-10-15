@@ -37,6 +37,13 @@
 /* getenv(MASTER_CONFIG_FILE_ENV) provides path to configuration file/socket */
 #define MASTER_CONFIG_FILE_ENV "CONFIG_FILE"
 
+/* getenv(DOVECOT_WORKER_ACCEPTED_FD_ENV) is set by master when it has already
+   accepted a connection for us. */
+#define DOVECOT_WORKER_ACCEPTED_FD_ENV "DOVECOT_WORKER_ACCEPTED_FD"
+/* getenv(DOVECOT_WORKER_ACCEPTED_SETTINGS_ENV) contains the listener settings
+   for the accepted connection. */
+#define DOVECOT_WORKER_ACCEPTED_SETTINGS_ENV "DOVECOT_WORKER_ACCEPTED_SETTINGS"
+
 /* getenv(MASTER_DOVECOT_VERSION_ENV) provides master's version number */
 #define MASTER_DOVECOT_VERSION_ENV "DOVECOT_VERSION"
 
@@ -637,6 +644,15 @@ master_service_init(const char *name, enum master_service_flags flags,
 
 	master_service_verify_version_string(service);
 
+	/* getenv()s are cheap, so just call them here */
+	value = getenv(DOVECOT_WORKER_ACCEPTED_FD_ENV);
+	if (value != NULL && str_to_int(value, &service->accepted_fd) == 0) {
+		service->accepted_settings =
+			i_strdup(getenv(DOVECOT_WORKER_ACCEPTED_SETTINGS_ENV));
+	} else {
+		service->accepted_fd = -1;
+	}
+
 	if ((service->flags & MASTER_SERVICE_FLAG_STANDALONE) == 0) {
 		env_remove(MASTER_SERVICE_ENV);
 		env_remove(MASTER_SERVICE_SOCKET_COUNT_ENV);
@@ -1205,6 +1221,48 @@ master_service_get_settings_root(struct master_service *service)
 void master_service_run(struct master_service *service,
 			master_service_connection_callback_t *callback)
 {
+	if (service->accepted_fd != -1) {
+		const char *const *settings =
+			t_strsplit_tabescaped(service->accepted_settings);
+		struct master_service_listener *l;
+		struct master_service_connection conn;
+
+		i_zero(&conn);
+		conn.fd = service->accepted_fd;
+		conn.listen_fd = -1;
+
+		l = i_new(struct master_service_listener, 1);
+		l->name = i_strdup(settings[0]);
+		if (settings[1] != NULL && strcmp(settings[1], "ssl") == 0) {
+			l->ssl = TRUE;
+			if (settings[2] != NULL &&
+			    strcmp(settings[2], "haproxy") == 0)
+				l->haproxy = TRUE;
+		} else if (settings[1] != NULL &&
+			   strcmp(settings[1], "haproxy") == 0) {
+			l->haproxy = TRUE;
+		}
+
+		conn.ssl = l->ssl;
+		conn.name = l->name;
+		conn.type = "";
+		i_free(l->name);
+		i_free(l);
+
+		(void)net_getsockname(conn.fd, &conn.local_ip, &conn.local_port);
+		(void)net_getpeername(conn.fd, &conn.remote_ip, &conn.remote_port);
+		conn.real_local_ip = conn.local_ip;
+		conn.real_local_port = conn.local_port;
+		conn.real_remote_ip = conn.remote_ip;
+		conn.real_remote_port = conn.remote_port;
+
+		master_service_client_connection_created(service);
+		if (l->haproxy)
+			master_service_haproxy_new(service, &conn);
+		else
+			callback(&conn);
+	}
+
 	service->callback = callback;
 	io_loop_run(service->ioloop);
 	service->callback = NULL;

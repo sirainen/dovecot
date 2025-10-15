@@ -105,6 +105,9 @@ struct master_service {
 	bool init_finished:1;
 	bool killed_signal_logged:1;
 	bool io_status_waiting:1;
+
+	int accepted_fd;
+	char *accepted_settings;
 };
 
 void master_service_io_listeners_add(struct master_service *service);

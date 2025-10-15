@@ -134,6 +134,9 @@ enum master_login_state {
    accepting. Once no children are listening, master will do it and create
    new child processes when needed. */
 #define MASTER_LISTEN_FD_FIRST 8
+/* If master pre-accepted a connection for a worker process, this is the fd
+   number where it's passed to. */
+#define MASTER_WORKER_ACCEPTED_FD 9
 
 /* Timeouts: base everything on how long we can wait for login clients. */
 #define MASTER_LOGIN_TIMEOUT_SECS (3*60)

@@ -69,7 +69,7 @@ service_unix_pid_listener_get_path(struct service_listener *l, pid_t pid,
 }
 
 static void
-service_dup_fds(struct service *service)
+service_dup_fds(struct service *service, int accepted_fd)
 {
 	struct service_listener *const *listeners;
 	ARRAY_TYPE(dup2) dups;
@@ -83,6 +83,13 @@ service_dup_fds(struct service *service)
 
 	   because the destination fd might be another one's source fd we have
 	   to be careful not to overwrite anything. dup() the fd when needed */
+
+	if (accepted_fd != -1) {
+		/* we have a pre-accepted connection */
+		i_assert(MASTER_WORKER_ACCEPTED_FD > STDERR_FILENO);
+		dup2_append_to_self(&dups, accepted_fd,
+				    MASTER_WORKER_ACCEPTED_FD);
+	}
 
         socket_listener_count = 0;
 	listeners = array_get(&service->listeners, &count);
@@ -296,10 +303,13 @@ static void service_process_setup_config_environment(struct service *service)
 
 static void
 service_process_setup_environment(struct service *service, unsigned int uid,
-				  const char *hostdomain)
+				  const char *hostdomain, int accepted_fd,
+				  struct service_listener *accepted_listener)
 {
 	const struct master_service_settings *service_set =
 		master_service_get_service_settings(master_service);
+	string_t *str;
+
 	master_service_env_clean();
 
 	env_put(MASTER_IS_PARENT_ENV, "1");
@@ -345,6 +355,19 @@ service_process_setup_environment(struct service *service, unsigned int uid,
 	    service_anvil_global->restarted)
 		env_put("ANVIL_RESTARTED", "1");
 	env_put(DOVECOT_LOG_DEBUG_ENV, service_set->log_debug);
+
+	if (accepted_fd != -1) {
+		env_put(DOVECOT_WORKER_ACCEPTED_FD_ENV,
+			dec2str(MASTER_WORKER_ACCEPTED_FD));
+
+		str = t_str_new(128);
+		str_append_tabescaped(str, accepted_listener->name);
+		if (accepted_listener->set.inetset.set->ssl)
+			str_append(str, "\tssl");
+		if (accepted_listener->set.inetset.set->haproxy)
+			str_append(str, "\thaproxy");
+		env_put(DOVECOT_WORKER_ACCEPTED_SETTINGS_ENV, str_c(str));
+	}
 }
 
 static void service_process_status_timeout(struct service_process *process)
@@ -360,7 +383,9 @@ static void service_process_status_timeout(struct service_process *process)
 	timeout_remove(&process->to_status);
 }
 
-struct service_process *service_process_create(struct service *service)
+struct service_process *
+service_process_create(struct service *service, int accepted_fd,
+		       struct service_listener *accepted_listener)
 {
 	static unsigned int uid_counter = 0;
 	struct service_process *process;
@@ -411,9 +436,11 @@ struct service_process *service_process_create(struct service *service)
 	}
 	if (pid == 0) {
 		/* child */
-		service_process_setup_environment(service, uid, hostdomain);
+		service_process_setup_environment(service, uid, hostdomain,
+						  accepted_fd,
+						  accepted_listener);
 		service_reopen_inet_listeners(service);
-		service_dup_fds(service);
+		service_dup_fds(service, accepted_fd);
 		drop_privileges(service);
 		process_exec(service->executable);
 	}

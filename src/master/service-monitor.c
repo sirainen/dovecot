@@ -383,6 +383,7 @@ static void service_drop_connections(struct service_listener *l)
 static void service_accept(struct service_listener *l)
 {
 	struct service *service = l->service;
+	int fd;
 
 	i_assert(service->process_avail == 0);
 
@@ -393,11 +394,16 @@ static void service_accept(struct service_listener *l)
 		return;
 	}
 
-	/* create a child process and let it accept() this connection */
-	if (service_process_create(service) == NULL)
+	/* we can create a new process */
+	fd = net_accept(l->fd, NULL, NULL);
+	if (fd == -1)
+		return;
+
+	/* create a child process and pass the accepted fd to it */
+	if (service_process_create(service, fd, l) == NULL) {
 		service_monitor_throttle(service);
-	else
-		service_monitor_listen_stop(service);
+		net_disconnect(fd);
+	}
 }
 
 static bool
@@ -414,7 +420,7 @@ service_monitor_start_count(struct service *service, unsigned int limit)
 		count = limit;
 
 	for (i = 0; i < count; i++) {
-		if (service_process_create(service) == NULL) {
+		if (service_process_create(service, -1, NULL) == NULL) {
 			service_monitor_throttle(service);
 			break;
 		}
@@ -597,7 +603,7 @@ void services_monitor_start(struct service_list *service_list)
 		service_monitor_start_extra_avail(service);
 
 	if (service_list->log->status_fd[0] != -1) {
-		if (service_process_create(service_list->log) != NULL)
+		if (service_process_create(service_list->log, -1, NULL) != NULL)
 			service_monitor_listen_stop(service_list->log);
 	}
 
@@ -605,7 +611,7 @@ void services_monitor_start(struct service_list *service_list)
 	array_foreach_elem(&service_list->services, service) {
 		if (service->type == SERVICE_TYPE_STARTUP &&
 		    service->status_fd[0] != -1) {
-			if (service_process_create(service) != NULL)
+			if (service_process_create(service, -1, NULL) != NULL)
 				service_monitor_listen_stop(service);
 		}
 	}
@@ -886,7 +892,7 @@ void services_monitor_reap_children(void)
 			} else if (service == service->list->log &&
 				   service->process_count == 0) {
 				/* log service must always be running */
-				if (service_process_create(service) == NULL)
+				if (service_process_create(service, -1, NULL) == NULL)
 					service_monitor_throttle(service);
 			} else {
 				service_monitor_listen_start(service);
