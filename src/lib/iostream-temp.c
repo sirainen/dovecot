@@ -26,6 +26,7 @@ struct temp_ostream {
 
 	buffer_t *buf;
 	int fd;
+	struct ostream *fd_ostream;
 	bool fd_tried;
 	uoff_t fd_size;
 };
@@ -40,7 +41,10 @@ o_stream_temp_close(struct iostream_private *stream,
 	struct temp_ostream *tstream =
 		container_of(stream, struct temp_ostream, ostream.iostream);
 
-	i_close_fd(&tstream->fd);
+	if (tstream->fd_ostream != NULL)
+		o_stream_destroy(&tstream->fd_ostream);
+	if (tstream->fd != -1)
+		i_close_fd(&tstream->fd);
 	buffer_free(&tstream->buf);
 	i_free(tstream->temp_path_prefix);
 	i_free(tstream->name);
@@ -65,9 +69,15 @@ static int o_stream_temp_move_to_fd(struct temp_ostream *tstream)
 		i_close_fd(&tstream->fd);
 		return -1;
 	}
-	if (write_full(tstream->fd, tstream->buf->data, tstream->buf->used) < 0) {
-		i_error("write(%s) failed: %m", str_c(path));
-		i_close_fd(&tstream->fd);
+
+	tstream->fd_ostream = o_stream_create_fd_file(tstream->fd, 0, FALSE);
+	o_stream_set_name(tstream->fd_ostream,
+			  o_stream_get_name(&tstream->ostream.ostream));
+	if (o_stream_send(tstream->fd_ostream,
+			    tstream->buf->data, tstream->buf->used) < 0) {
+		i_error("write(%s) failed: %s", str_c(path),
+			o_stream_get_error(tstream->fd_ostream));
+		o_stream_destroy(&tstream->fd_ostream);
 		return -1;
 	}
 	/* make the fd available also to o_stream_get_fd(),
@@ -87,11 +97,14 @@ int o_stream_temp_move_to_memory(struct ostream *output)
 	ssize_t ret = 0;
 
 	i_assert(tstream->buf == NULL);
+	if (o_stream_flush(tstream->fd_ostream) < 0)
+		return -1;
+
 	tstream->buf = buffer_create_dynamic(default_pool, 8192);
-	while (offset < tstream->ostream.ostream.offset &&
+	while (offset < tstream->fd_ostream->offset &&
 	       (ret = pread(tstream->fd, buf, sizeof(buf), offset)) > 0) {
-		if ((size_t)ret > tstream->ostream.ostream.offset - offset)
-			ret = tstream->ostream.ostream.offset - offset;
+		if ((size_t)ret > tstream->fd_ostream->offset - offset)
+			ret = tstream->fd_ostream->offset - offset;
 		buffer_append(tstream->buf, buf, ret);
 		offset += ret;
 	}
@@ -103,38 +116,10 @@ int o_stream_temp_move_to_memory(struct ostream *output)
 		tstream->ostream.ostream.stream_errno = EIO;
 		return -1;
 	}
+	o_stream_destroy(&tstream->fd_ostream);
 	i_close_fd(&tstream->fd);
 	tstream->ostream.fd = -1;
 	return 0;
-}
-
-static ssize_t
-o_stream_temp_fd_sendv(struct temp_ostream *tstream,
-		       const struct const_iovec *iov, unsigned int iov_count)
-{
-	size_t bytes = 0;
-	unsigned int i;
-
-	for (i = 0; i < iov_count; i++) {
-		if (write_full(tstream->fd, iov[i].iov_base, iov[i].iov_len) < 0) {
-			i_error("iostream-temp %s: write(%s*) failed: %m - moving to memory",
-				o_stream_get_name(&tstream->ostream.ostream),
-				tstream->temp_path_prefix);
-			if (o_stream_temp_move_to_memory(&tstream->ostream.ostream) < 0)
-				return -1;
-			for (; i < iov_count; i++) {
-				buffer_append(tstream->buf, iov[i].iov_base, iov[i].iov_len);
-				bytes += iov[i].iov_len;
-				tstream->ostream.ostream.offset += iov[i].iov_len;
-			}
-			i_assert(tstream->fd_tried);
-			return bytes;
-		}
-		bytes += iov[i].iov_len;
-		tstream->ostream.ostream.offset += iov[i].iov_len;
-	}
-	tstream->fd_size += bytes;
-	return bytes;
 }
 
 static ssize_t
@@ -154,15 +139,28 @@ o_stream_temp_sendv(struct ostream_private *stream,
 			return -1;
 	}
 
-	if (tstream->fd != -1)
-		return o_stream_temp_fd_sendv(tstream, iov, iov_count);
+	if (tstream->fd_ostream != NULL) {
+		ret = o_stream_sendv(tstream->fd_ostream, iov, iov_count);
+		stream->ostream.offset = tstream->fd_ostream->offset;
+		if (ret < 0) {
+			stream->ostream.stream_errno =
+				tstream->fd_ostream->stream_errno;
+		}
+		return ret;
+	}
 
 	for (i = 0; i < iov_count; i++) {
 		if (tstream->buf->used + iov[i].iov_len > tstream->max_mem_size) {
 			if (o_stream_temp_move_to_fd(tstream) == 0) {
-				i_assert(tstream->fd != -1);
-				return o_stream_temp_fd_sendv(tstream, iov+i,
-							      iov_count-i);
+				i_assert(tstream->fd_ostream != NULL);
+				ret = o_stream_sendv(tstream->fd_ostream,
+						     iov+i, iov_count-i);
+				stream->ostream.offset = tstream->fd_ostream->offset;
+				if (ret < 0) {
+					stream->ostream.stream_errno =
+						tstream->fd_ostream->stream_errno;
+				}
+				return ret;
 			}
 			/* failed to move to temp fd, just keep it in memory */
 		}
@@ -271,14 +269,19 @@ o_stream_temp_write_at(struct ostream_private *stream,
 	struct temp_ostream *tstream =
 		container_of(stream, struct temp_ostream, ostream);
 
-	if (tstream->fd == -1) {
+	if (tstream->fd_ostream == NULL) {
 		i_assert(stream->ostream.offset == tstream->buf->used);
 		buffer_write(tstream->buf, offset, data, size);
 		stream->ostream.offset = tstream->buf->used;
 	} else {
+		if (o_stream_flush(tstream->fd_ostream) < 0) {
+			stream->ostream.stream_errno =
+				tstream->fd_ostream->stream_errno;
+			return -1;
+		}
 		if (pwrite_full(tstream->fd, data, size, offset) < 0) {
 			stream->ostream.stream_errno = errno;
-			i_close_fd(&tstream->fd);
+			o_stream_destroy(&tstream->fd_ostream);
 			return -1;
 		}
 		if (tstream->fd_size < offset + size)
@@ -289,6 +292,16 @@ o_stream_temp_write_at(struct ostream_private *stream,
 
 static int o_stream_temp_seek(struct ostream_private *_stream, uoff_t offset)
 {
+	struct temp_ostream *tstream =
+		container_of(_stream, struct temp_ostream, ostream);
+
+	if (tstream->fd_ostream != NULL) {
+		if (o_stream_seek(tstream->fd_ostream, offset) < 0) {
+			_stream->ostream.stream_errno =
+				tstream->fd_ostream->stream_errno;
+			return -1;
+		}
+	}
 	_stream->ostream.offset = offset;
 	return 0;
 }
@@ -383,12 +396,27 @@ struct istream *iostream_temp_finish(struct ostream **output,
 	} else if (tstream->dupstream != NULL) {
 		/* return the original failed stream. */
 		input = tstream->dupstream;
-	} else if (tstream->fd != -1) {
-		int fd = tstream->fd;
-		input = i_stream_create_fd_autoclose(&tstream->fd, max_buffer_size);
-		i_stream_set_name(input, t_strdup_printf(
-			"(Temp file fd %d in %s%s, %"PRIuUOFF_T" bytes)",
-			fd, tstream->temp_path_prefix, for_path, tstream->fd_size));
+	} else if (tstream->fd_ostream != NULL) {
+		if (o_stream_flush(tstream->fd_ostream) < 0) {
+			input = i_stream_create_error_str(
+				tstream->fd_ostream->stream_errno,
+				"flush(%s) failed: %s",
+				o_stream_get_name(tstream->fd_ostream),
+				o_stream_get_error(tstream->fd_ostream));
+		} else {
+			int fd;
+			tstream->fd_size = tstream->fd_ostream->offset;
+			fd = o_stream_get_fd(tstream->fd_ostream);
+			/* The autoclose-fd is FALSE, so we need to destroy the
+			   o_stream and then we can use the fd. */
+			o_stream_destroy(&tstream->fd_ostream);
+
+			input = i_stream_create_fd_autoclose(&tstream->fd, max_buffer_size);
+			i_stream_set_name(input, t_strdup_printf(
+				"(Temp file fd %d in %s%s, %"PRIuUOFF_T" bytes)",
+				fd, tstream->temp_path_prefix, for_path,
+				tstream->fd_size));
+		}
 	} else {
 		input = i_stream_create_from_data(tstream->buf->data,
 						  tstream->buf->used);
