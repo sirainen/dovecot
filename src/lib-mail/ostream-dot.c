@@ -105,55 +105,70 @@ o_stream_dot_sendv(struct ostream_private *stream,
 
 		p = data;
 		pend = CONST_PTR_OFFSET(data, size);
-		for (; p < pend && (size_t)(p-data)+2 < max_bytes; p++) {
-			char add = 0;
+		while (p < pend && max_bytes > 1) {
+			size_t avail_in_buf = pend - p;
+			size_t len;
 
 			switch (dstream->state) {
-			/* none */
-			case STREAM_STATE_NONE:
-				switch (*p) {
-				case '\n':
-					dstream->state = STREAM_STATE_CRLF;
-					/* add missing CR */
-					add = '\r';
-					break;
-				case '\r':
-					dstream->state = STREAM_STATE_CR;
-					break;
-				}
-				break;
-			/* got CR */
-			case STREAM_STATE_CR:
-				switch (*p) {
-				case '\r':
-					break;
-				case '\n':
-					dstream->state = STREAM_STATE_CRLF;
-					break;
-				default:
-					dstream->state = STREAM_STATE_NONE;
-					break;
-				}
-				break;
-			/* got CRLF, or the first line */
 			case STREAM_STATE_INIT:
 			case STREAM_STATE_CRLF:
-				switch (*p) {
-				case '\r':
-					dstream->state = STREAM_STATE_CR;
-					break;
-				case '\n':
+				len = i_memcspn(p, avail_in_buf, "\r\n.", 3);
+				break;
+			case STREAM_STATE_CR:
+				len = i_memcspn(p, avail_in_buf, "\r\n", 2);
+				break;
+			case STREAM_STATE_NONE:
+				len = i_memcspn(p, avail_in_buf, "\r\n", 2);
+				break;
+			case STREAM_STATE_DONE:
+			default:
+				i_unreached();
+			}
+
+			if (len > 0) {
+				size_t copy_len = I_MIN(len, max_bytes-1);
+				iovn.iov_base = p;
+				iovn.iov_len = copy_len;
+				array_push_back(&iov_arr, &iovn);
+				max_bytes -= copy_len;
+				sent += copy_len;
+				p += copy_len;
+				if (len > copy_len)
+					continue;
+			}
+			if (p == pend)
+				break;
+
+			char add = 0;
+			switch (dstream->state) {
+			case STREAM_STATE_NONE:
+				if (*p == '\n') {
 					dstream->state = STREAM_STATE_CRLF;
-					/* add missing CR */
 					add = '\r';
-					break;
-				case '.':
-					/* add dot */
-					add = '.';
-					/* fall through */
-				default:
+				} else {
+					i_assert(*p == '\r');
+					dstream->state = STREAM_STATE_CR;
+				}
+				break;
+			case STREAM_STATE_CR:
+				if (*p == '\n')
+					dstream->state = STREAM_STATE_CRLF;
+				else {
+					i_assert(*p == '\r');
 					dstream->state = STREAM_STATE_NONE;
-					break;
+				}
+				break;
+			case STREAM_STATE_INIT:
+			case STREAM_STATE_CRLF:
+				if (*p == '.') {
+					add = '.';
+					dstream->state = STREAM_STATE_NONE;
+				} else if (*p == '\n') {
+					dstream->state = STREAM_STATE_CRLF;
+					add = '\r';
+				} else {
+					i_assert(*p == '\r');
+					dstream->state = STREAM_STATE_CR;
 				}
 				break;
 			case STREAM_STATE_DONE:
@@ -161,19 +176,6 @@ o_stream_dot_sendv(struct ostream_private *stream,
 			}
 
 			if (add != 0) {
-				chunk = (size_t)(p - data);
-				if (chunk > 0) {
-					/* forward chunk to new iovec */
-					iovn.iov_base = data;
-					iovn.iov_len = chunk;
-					array_push_back(&iov_arr, &iovn);
-					data = p;
-					i_assert(max_bytes >= chunk);
-					max_bytes -= chunk;
-					sent += chunk;
-				}
-				/* insert byte (substitute one with pair) */
-				data++;
 				iovn.iov_base = (add == '\r' ? "\r\n" : "..");
 				iovn.iov_len = 2;
 				array_push_back(&iov_arr, &iovn);
@@ -181,13 +183,16 @@ o_stream_dot_sendv(struct ostream_private *stream,
 				max_bytes -= 2;
 				added++;
 				sent++;
+			} else {
+				iovn.iov_base = p;
+				iovn.iov_len = 1;
+				array_push_back(&iov_arr, &iovn);
+				max_bytes--;
+				sent++;
 			}
+			p++;
 		}
-
-		if (max_bytes == 0)
-			break;
-		chunk = ((size_t)(p-data) >= max_bytes ?
-				max_bytes : (size_t)(p - data));
+		chunk = pend - p;
 		if (chunk > 0) {
 			iovn.iov_base = data;
 			iovn.iov_len = chunk;
