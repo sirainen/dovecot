@@ -773,6 +773,7 @@ imapc_fetch_header_stream(struct imapc_mail *mail,
 
 	headers_ctx = mailbox_header_lookup_init(mail->imail.mail.mail.box,
 						 array_front(&hdr_arr));
+	mail->imail.data.parsing_partial_headers = TRUE;
 	index_mail_parse_header_init(&mail->imail, headers_ctx);
 
 	parser = message_parse_header_init(input, NULL, hdr_parser_flags);
@@ -782,6 +783,7 @@ imapc_fetch_header_stream(struct imapc_mail *mail,
 	i_assert(ret != 0);
 	index_mail_parse_header(NULL, NULL, &mail->imail);
 	message_parse_header_deinit(&parser);
+	mail->imail.data.parsing_partial_headers = FALSE;
 
 	mailbox_header_lookup_unref(&headers_ctx);
 	i_stream_destroy(&input);

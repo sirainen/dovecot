@@ -247,10 +247,15 @@ void index_mail_parse_header_init(struct index_mail *mail,
 		}
 	}
 
-	/* register also all the other headers that exist in cache file */
-	T_BEGIN {
-		index_mail_parse_header_register_all_wanted(mail);
-	} T_END;
+	/* If we're parsing only a specific set of headers, don't try to
+	   find other cached headers. This would otherwise break and save the
+	   other headers as empty. */
+	if (!mail->data.parsing_partial_headers) {
+		/* register also all the other headers that exist in cache file */
+		T_BEGIN {
+			index_mail_parse_header_register_all_wanted(mail);
+		} T_END;
+	}
 
 	/* if we want sent date, it doesn't mean that we also want to cache
 	   Date: header. if we have Date field's index set at this point we

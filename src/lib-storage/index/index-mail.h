@@ -129,6 +129,7 @@ struct index_mail_data {
 	bool destroy_callback_set:1;
 	bool prefetch_sent:1;
 	bool header_parser_initialized:1;
+	bool parsing_partial_headers:1;
 	bool attachment_flags_updating:1;
 	bool istream_broken:1;
 	/* virtual_size and physical_size may not match the stream size.
