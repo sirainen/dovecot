@@ -258,8 +258,8 @@ void openssl_iostream_shutdown(struct ssl_iostream *ssl_io)
 	ssl_io->destroyed = TRUE;
 	(void)o_stream_flush(ssl_io->plain_output);
 
-	if (!ssl_io->closed &&
-	    (ssl_io->handshaked || ssl_io->handshake_failed || ssl_io->do_shutdown)) {
+	if (!ssl_io->closed && !ssl_io->handshake_failed &&
+	    (ssl_io->handshaked || ssl_io->do_shutdown)) {
 		/* Try shutting down connection. If it does not succeed at once,
 		   try once more. */
 		for (int i = 0; i < 2; i++) {
