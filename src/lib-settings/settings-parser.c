@@ -376,7 +376,13 @@ settings_parse_strlist(struct setting_parser_context *ctx,
 			"Setting is a string list, use %s/key=value'", key);
 		return -1;
 	}
-	key = settings_section_unescape(suffix + 1);
+	key = suffix + 1;
+	bool remove = FALSE;
+	if (*key == SET_LIST_REMOVE[0]) {
+		key++;
+		remove = TRUE;
+	}
+	key = settings_section_unescape(key);
 	vvalue = p_strdup(ctx->set_pool, value);
 
 	if (!array_is_created(array))
@@ -386,10 +392,16 @@ settings_parse_strlist(struct setting_parser_context *ctx,
 	items = array_get(array, &count);
 	for (i = 0; i < count; i += 2) {
 		if (strcmp(items[i], key) == 0) {
+			if (remove) {
+				array_delete(array, i, 2);
+				return 0;
+			}
 			array_idx_set(array, i + 1, &vvalue);
 			return 0;
 		}
 	}
+	if (remove)
+		return 0;
 
 	vkey = p_strdup(ctx->set_pool, key);
 	array_push_back(array, &vkey);
@@ -580,14 +592,23 @@ settings_parse_boollist(struct setting_parser_context *ctx,
 		settings_boollist_finish(array, FALSE);
 		return 0;
 	}
-	key = settings_section_unescape(key + 1);
+	key++;
+	bool remove = FALSE;
+	if (*key == SET_LIST_REMOVE[0]) {
+		key++;
+		remove = TRUE;
+	}
+	key = settings_section_unescape(key);
 
 	bool value_bool;
 	if (get_bool(ctx, value, &value_bool) < 0)
 		return -1;
 
 	elem = array_lsearch(array, &key, i_strcmp_p);
-	if (elem == NULL && value_bool) {
+	if (remove) {
+		if (elem != NULL)
+			array_delete(array, array_ptr_to_idx(array, elem), 1);
+	} else if (elem == NULL && value_bool) {
 		/* add missing element */
 		key = p_strdup(ctx->set_pool, key);
 		array_push_back(array, &key);

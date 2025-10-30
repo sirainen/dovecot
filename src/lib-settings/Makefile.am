@@ -37,7 +37,8 @@ pkglibexec_SCRIPTS = \
 
 test_programs = \
 	test-settings-parser \
-	test-settings
+	test-settings \
+	test-settings-list
 
 noinst_PROGRAMS = $(test_programs)
 
@@ -56,6 +57,10 @@ test_settings_parser_DEPENDENCIES = $(test_libs)
 test_settings_SOURCES = test-settings.c
 test_settings_LDADD = $(test_libs) $(DLLIB)
 test_settings_DEPENDENCIES = $(test_libs)
+
+test_settings_list_SOURCES = test-settings-list.c
+test_settings_list_LDADD = $(test_libs) $(DLLIB)
+test_settings_list_DEPENDENCIES = $(test_libs)
 
 check-local:
 	for bin in $(test_programs); do \

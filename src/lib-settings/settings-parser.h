@@ -23,6 +23,7 @@ struct var_expand_provider;
 #define SET_TIME_MSECS_INFINITE UINT_MAX
 
 #define SET_LIST_APPEND "+"
+#define SET_LIST_REMOVE "-"
 #define SET_LIST_REPLACE "$"
 #define SET_LIST_CLEAR "."
 

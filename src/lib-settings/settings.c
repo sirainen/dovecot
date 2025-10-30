@@ -52,6 +52,8 @@ struct settings_override {
 	unsigned int filter_element_count;
 	/* key += value is used, i.e. append this value to existing value */
 	bool append;
+	/* key -= value is used, i.e. remove this value from existing value */
+	bool remove;
 	bool array_default_added;
 	/* Original key for the overridden setting, e.g.
 	   namespace/inbox/mailbox/Sent/mail_attribute/dict_driver */
@@ -1028,7 +1030,7 @@ settings_mmap_apply_blob(struct settings_apply_ctx *ctx,
 			   whole list is replaced. */
 			set_apply = FALSE;
 		}
-		bool list_stop = FALSE, list_clear = FALSE;
+		bool list_stop = FALSE, list_clear = FALSE, list_remove = FALSE;
 		if (ctx->info->defines[key_idx].type == SET_BOOLLIST ||
 		    ctx->info->defines[key_idx].type == SET_STRLIST) {
 			const char *type =
@@ -1038,6 +1040,8 @@ settings_mmap_apply_blob(struct settings_apply_ctx *ctx,
 			else if (type[0] == SET_LIST_CLEAR[0]) {
 				list_stop = TRUE;
 				list_clear = TRUE;
+			} else if (type[0] == SET_LIST_REMOVE[0]) {
+				list_remove = TRUE;
 			} else if (type[0] != SET_LIST_APPEND[0]) {
 				*error_r = t_strdup_printf(
 					"List type is invalid (offset=%zu)",
@@ -1079,8 +1083,18 @@ settings_mmap_apply_blob(struct settings_apply_ctx *ctx,
 		int ret = 0;
 		T_BEGIN {
 			if (set_apply && !list_clear) {
-				ret = settings_mmap_apply_key(ctx, key_idx,
-					list_key, value, error_r);
+				if (list_remove) {
+					/* we need to signal to parser to remove this item */
+					const char *key = ctx->info->defines[key_idx].key;
+					key = t_strdup_printf("%s/%c%s", key,
+							      SET_LIST_REMOVE[0],
+							      list_key);
+					ret = settings_mmap_apply_key(ctx, key_idx,
+									  key, value, error_r);
+				} else {
+					ret = settings_mmap_apply_key(ctx, key_idx,
+								      list_key, value, error_r);
+				}
 			}
 			if (list_stop) {
 				/* The lists are filled in reverse order.
@@ -2074,10 +2088,12 @@ settings_override_get_value(struct settings_apply_ctx *ctx,
 	else
 		key = t_strconcat(ctx->info->defines[key_idx].key, list, NULL);
 
-	if (!set->append ||
+	if ((!set->append && !set->remove) ||
 	    ctx->info->defines[key_idx].type != SET_STR) {
 		if (set->append && ctx->info->defines[key_idx].type != SET_FILTER_ARRAY)
 			*_key = t_strconcat(key, SETTINGS_APPEND_KEY_SUFFIX, NULL);
+		else if (set->remove && ctx->info->defines[key_idx].type != SET_FILTER_ARRAY)
+			*_key = t_strconcat(key, "-", NULL);
 		else
 			*_key = key;
 		*key_idx_r = key_idx;
@@ -3072,6 +3088,13 @@ settings_override_fill(struct settings_override *set, pool_t pool,
 			while (len > 0 && i_isspace(key[len-1]))
 				len--;
 			key = t_strndup(key, len);
+		} else if (len > 0 && key[len-1] == '-') {
+			/* key-=value */
+			set->remove = TRUE;
+			len--;
+			while (len > 0 && i_isspace(key[len-1]))
+				len--;
+			key = t_strndup(key, len);
 		}
 		set->key = set->orig_key = p_strdup(pool, key);
 		set->value = p_strdup(pool, value);
@@ -3109,13 +3132,16 @@ settings_override_equals(struct settings_override *set, const char *key,
 	size_t key_len = strlen(key);
 	bool key_append = (key_len > 0 &&
 			   key[key_len-1] == SETTINGS_APPEND_KEY_SUFFIX[0]);
+	bool key_remove = (key_len > 0 && key[key_len-1] == '-');
 
 	if (set->type != type)
 		return FALSE;
 	if (set->append != key_append)
 		return FALSE;
+	if (set->remove != key_remove)
+		return FALSE;
 
-	if (key_append) {
+	if (key_append || key_remove) {
 		size_t set_len = strlen(set->key);
 
 		if (set_len != key_len - 1)
