@@ -10,13 +10,19 @@ enum dsync_mailbox_exporter_flags {
 	DSYNC_MAILBOX_EXPORTER_FLAG_VSIZES		= 0x40,
 };
 
+struct dsync_mailbox_exporter_settings {
+	uint32_t last_common_uid;
+	time_t sync_since_timestamp;
+	time_t sync_until_timestamp;
+	enum dsync_mailbox_exporter_flags flags;
+	unsigned int hdr_hash_version;
+	const char *const *hashed_headers;
+};
+
 struct dsync_mailbox_exporter *
 dsync_mailbox_export_init(struct mailbox *box,
 			  struct dsync_transaction_log_scan *log_scan,
-			  uint32_t last_common_uid,
-			  enum dsync_mailbox_exporter_flags flags,
-			  unsigned int hdr_hash_version,
-			  const char *const *hashed_headers,
+			  const struct dsync_mailbox_exporter_settings *set,
 			  struct event *parent_event);
 /* Returns 1 if attribute was returned, 0 if no more attributes, -1 on error */
 int dsync_mailbox_export_next_attr(struct dsync_mailbox_exporter *exporter,

@@ -32,6 +32,8 @@ struct dsync_mailbox_exporter {
 	unsigned int hdr_hash_version;
 
 	const char *const *hashed_headers;
+	time_t sync_since_timestamp;
+	time_t sync_until_timestamp;
 
 	/* GUID => instances */
 	HASH_TABLE(char *, struct dsync_mail_guid_instances *) export_guids;
@@ -380,6 +382,17 @@ dsync_mailbox_export_search(struct dsync_mailbox_exporter *exporter)
 	int ret = 0;
 
 	search_args = mail_search_build_init();
+	if (exporter->sync_since_timestamp > 0) {
+		sarg = mail_search_build_add(search_args, SEARCH_SINCE);
+		sarg->value.time = exporter->sync_since_timestamp;
+		sarg->value.date_type = MAIL_SEARCH_DATE_TYPE_RECEIVED;
+	}
+	if (exporter->sync_until_timestamp > 0) {
+		sarg = mail_search_build_add(search_args, SEARCH_BEFORE);
+		sarg->value.time = exporter->sync_until_timestamp;
+		sarg->value.date_type = MAIL_SEARCH_DATE_TYPE_RECEIVED;
+	}
+
 	sarg = mail_search_build_add(search_args, SEARCH_UIDSET);
 	p_array_init(&sarg->value.seqset, search_args->pool, 1);
 
@@ -502,10 +515,7 @@ dsync_mailbox_export_log_scan(struct dsync_mailbox_exporter *exporter,
 struct dsync_mailbox_exporter *
 dsync_mailbox_export_init(struct mailbox *box,
 			  struct dsync_transaction_log_scan *log_scan,
-			  uint32_t last_common_uid,
-			  enum dsync_mailbox_exporter_flags flags,
-			  unsigned int hdr_hash_version,
-			  const char *const *hashed_headers,
+			  const struct dsync_mailbox_exporter_settings *set,
 			  struct event *parent_event)
 {
 	struct dsync_mailbox_exporter *exporter;
@@ -517,21 +527,23 @@ dsync_mailbox_export_init(struct mailbox *box,
 	exporter->pool = pool;
 	exporter->box = box;
 	exporter->log_scan = log_scan;
-	exporter->last_common_uid = last_common_uid;
+	exporter->last_common_uid = set->last_common_uid;
+	exporter->sync_since_timestamp = set->sync_since_timestamp;
+	exporter->sync_until_timestamp = set->sync_until_timestamp;
 	exporter->auto_export_mails =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_AUTO_EXPORT_MAILS) != 0;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_AUTO_EXPORT_MAILS) != 0;
 	exporter->mails_have_guids =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_MAILS_HAVE_GUIDS) != 0;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_MAILS_HAVE_GUIDS) != 0;
 	exporter->minimal_dmail_fill =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_MINIMAL_DMAIL_FILL) != 0;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_MINIMAL_DMAIL_FILL) != 0;
 	exporter->export_received_timestamps =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_TIMESTAMPS) != 0;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_TIMESTAMPS) != 0;
 	exporter->export_virtual_sizes =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_VSIZES) != 0;
-	exporter->hdr_hash_version = hdr_hash_version;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_VSIZES) != 0;
+	exporter->hdr_hash_version = set->hdr_hash_version;
 	exporter->no_hdr_hashes =
-		(flags & DSYNC_MAILBOX_EXPORTER_FLAG_NO_HDR_HASHES) != 0;
-	exporter->hashed_headers = hashed_headers;
+		(set->flags & DSYNC_MAILBOX_EXPORTER_FLAG_NO_HDR_HASHES) != 0;
+	exporter->hashed_headers = set->hashed_headers;
 	exporter->event = event_create(parent_event);
 
 	p_array_init(&exporter->requested_uids, pool, 16);
