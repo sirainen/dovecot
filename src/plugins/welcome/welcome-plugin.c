@@ -13,6 +13,7 @@
 #include "module-context.h"
 #include "settings.h"
 #include "settings-parser.h"
+#include "service-settings.h"
 #include "mail-storage-private.h"
 
 #define WELCOME_CONTEXT(obj) \
@@ -151,8 +152,13 @@ static struct mail_storage_hooks welcome_mail_storage_hooks = {
 void welcome_plugin_init(struct module *module);
 void welcome_plugin_deinit(void);
 
+extern struct service_settings welcome_service_settings;
+extern const struct setting_keyvalue welcome_service_settings_defaults[];
+
 void welcome_plugin_init(struct module *module)
 {
+	service_settings_register(&welcome_service_settings,
+				  welcome_service_settings_defaults);
 	mail_storage_hooks_add(module, &welcome_mail_storage_hooks);
 }
 
@@ -167,6 +173,7 @@ void welcome_plugin_deinit(void)
 	}
 
 	mail_storage_hooks_remove(&welcome_mail_storage_hooks);
+	service_settings_unregister(&welcome_service_settings);
 }
 
 const char *welcome_plugin_version = DOVECOT_ABI_VERSION;
