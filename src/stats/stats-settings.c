@@ -365,8 +365,12 @@ void metrics_group_by_linear_init(struct stats_metric_settings_group_by *group_b
 	/* set up min & max buckets */
 	group_by->ranges[0].min = INTMAX_MIN;
 	group_by->ranges[0].max = min;
-	group_by->ranges[group_by->num_ranges - 1].min = max;
 	group_by->ranges[group_by->num_ranges - 1].max = INTMAX_MAX;
+	if ((max - min) % step == 0)
+		group_by->ranges[group_by->num_ranges - 1].min = max;
+	else
+		group_by->ranges[group_by->num_ranges - 1].min =
+			min + group_by->num_ranges * step;
 
 	/* remaining buckets */
 	for (unsigned int i = 1; i < group_by->num_ranges - 1; i++) {
