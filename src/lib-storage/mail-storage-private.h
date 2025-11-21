@@ -707,7 +707,7 @@ struct mail_search_context {
 	/* add matches to these search results */
 	ARRAY(struct mail_search_result *) results;
 
-	uint32_t seq;
+	uint32_t seq, uid;
 	uint32_t progress_cur, progress_max;
 
 	ARRAY(struct mail *) mails;

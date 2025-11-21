@@ -13,14 +13,85 @@
 #define IMAPC_SEARCHCTX(obj) \
 	MODULE_CONTEXT(obj, imapc_storage_module)
 
+static bool
+imapc_build_search_query_args(struct imapc_mailbox *mbox,
+			      const struct mail_search_arg *args,
+			      bool parent_or, string_t *str);
+
+static bool
+imapc_build_sort_query(struct imapc_mailbox *mbox,
+		       const struct mail_search_args *args,
+		       const enum mail_sort_type *sort_program,
+		       const char **query_r)
+{
+	string_t *str = t_str_new(128);
+	const char *charset = "UTF-8";
+	unsigned int i;
+
+	if (IMAPC_BOX_HAS_FEATURE(mbox, IMAPC_FEATURE_NO_SORT)) {
+		/* SORT command passthrough not enabled */
+		return FALSE;
+	}
+
+	str_append(str, "UID SORT (");
+	for (i = 0; sort_program[i] != MAIL_SORT_END; i++) {
+		if ((sort_program[i] & MAIL_SORT_FLAG_REVERSE) != 0)
+			str_append(str, "REVERSE ");
+		switch (sort_program[i] & MAIL_SORT_MASK) {
+		case MAIL_SORT_ARRIVAL:
+			str_append(str, "ARRIVAL");
+			break;
+		case MAIL_SORT_CC:
+			str_append(str, "CC");
+			break;
+		case MAIL_SORT_DATE:
+			str_append(str, "DATE");
+			break;
+		case MAIL_SORT_FROM:
+			str_append(str, "FROM");
+			break;
+		case MAIL_SORT_SIZE:
+			str_append(str, "SIZE");
+			break;
+		case MAIL_SORT_SUBJECT:
+			str_append(str, "SUBJECT");
+			break;
+		case MAIL_SORT_TO:
+			str_append(str, "TO");
+			break;
+		case MAIL_SORT_RELEVANCY:
+		case MAIL_SORT_DISPLAYFROM:
+		case MAIL_SORT_DISPLAYTO:
+		case MAIL_SORT_POP3_ORDER:
+			return FALSE;
+		default:
+			i_unreached();
+		}
+		if (sort_program[i+1] != MAIL_SORT_END)
+			str_append_c(str, ' ');
+	}
+	str_append(str, ") ");
+	str_append(str, charset);
+	str_append_c(str, ' ');
+
+	if (args->args == NULL)
+		str_append(str, "ALL");
+	else if (!imapc_build_search_query_args(mbox, args->args, FALSE, str))
+		return FALSE;
+	*query_r = str_c(str);
+	return TRUE;
+}
+
 struct imapc_search_context {
 	union mail_search_module_context module_ctx;
 
 	ARRAY_TYPE(seq_range) rseqs;
+	ARRAY_TYPE(uint32_t) sorted_uids;
 	struct seq_range_iter iter;
 	unsigned int n;
 	bool finished;
 	bool success;
+	bool sorted;
 };
 
 static MODULE_CONTEXT_DEFINE_INIT(imapc_storage_module,
@@ -227,13 +298,23 @@ imapc_search_init(struct mailbox_transaction_context *t,
 	ctx = index_storage_search_init(t, args, sort_program,
 					wanted_fields, wanted_headers);
 
-	if (!imapc_build_search_query(mbox, args, &search_query)) {
-		/* can't optimize this with SEARCH */
-		return ctx;
+	if (sort_program != NULL) {
+		if (!imapc_build_sort_query(mbox, args, sort_program,
+					    &search_query)) {
+			/* can't optimize */
+			return ctx;
+		}
+		ictx->sorted = TRUE;
+	} else {
+		if (!imapc_build_search_query(mbox, args, &search_query)) {
+			/* can't optimize this with SEARCH */
+			return ctx;
+		}
 	}
 
 	ictx = i_new(struct imapc_search_context, 1);
 	i_array_init(&ictx->rseqs, 64);
+	i_array_init(&ictx->sorted_uids, 64);
 	MODULE_CONTEXT_SET(ctx, imapc_storage_module, ictx);
 
 	cmd = imapc_client_mailbox_cmd(mbox->client_box,
@@ -263,9 +344,18 @@ static void imapc_search_set_matches(struct mail_search_arg *args)
 bool imapc_search_next_update_seq(struct mail_search_context *ctx)
 {
 	struct imapc_search_context *ictx = IMAPC_SEARCHCTX(ctx);
+	const uint32_t *uidp;
 
 	if (ictx == NULL || !ictx->success)
 		return index_storage_search_next_update_seq(ctx);
+
+	if (ictx->sorted) {
+		if (ictx->n >= array_count(&ictx->sorted_uids))
+			return FALSE;
+		uidp = array_idx(&ictx->sorted_uids, ictx->n++);
+		ctx->uid = *uidp;
+		return TRUE;
+	}
 
 	if (!seq_range_array_iter_nth(&ictx->iter, ictx->n++, &ctx->seq))
 		return FALSE;
@@ -281,6 +371,7 @@ int imapc_search_deinit(struct mail_search_context *ctx)
 
 	if (ictx != NULL) {
 		array_free(&ictx->rseqs);
+		array_free(&ictx->sorted_uids);
 		i_free(ictx);
 	}
 	return index_storage_search_deinit(ctx);
@@ -307,8 +398,12 @@ void imapc_search_reply_search(const struct imap_arg *args,
 			e_error(event, "Invalid SEARCH reply");
 			break;
 		}
-		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq))
-			seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
+		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq)) {
+			if (mbox->search_ctx->sorted)
+				array_push_back(&mbox->search_ctx->sorted_uids, &uid);
+			else
+				seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
+		}
 	}
 }
 
@@ -329,4 +424,30 @@ void imapc_search_reply_esearch(const struct imap_arg *args,
 	     !imap_arg_get_atom(&args[1], &atom) ||
 	     imap_seq_set_nostar_parse(atom, &mbox->search_ctx->rseqs) < 0))
 		e_error(event, "Invalid ESEARCH reply");
+}
+
+void imapc_search_reply_sort(const struct imap_arg *args,
+			     struct imapc_mailbox *mbox)
+{
+	struct event *event = mbox->box.event;
+	struct imapc_msgmap *msgmap =
+		imapc_client_mailbox_get_msgmap(mbox->client_box);
+	const char *atom;
+	uint32_t uid, rseq;
+
+	if (mbox->search_ctx == NULL) {
+		e_error(event, "Unexpected SORT reply");
+		return;
+	}
+
+	/* we're doing UID SORT, so need to convert UIDs to sequences */
+	for (unsigned int i = 0; args[i].type != IMAP_ARG_EOL; i++) {
+		if (!imap_arg_get_atom(&args[i], &atom) ||
+		    str_to_uint32(atom, &uid) < 0 || uid == 0) {
+			e_error(event, "Invalid SORT reply");
+			break;
+		}
+		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq))
+			seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
+	}
 }
