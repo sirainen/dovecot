@@ -6,9 +6,11 @@
 #include "imap-seqset.h"
 #include "imap-util.h"
 #include "mail-search.h"
+#include "mail-storage-private.h"
 #include "imapc-msgmap.h"
 #include "imapc-storage.h"
 #include "imapc-search.h"
+#include "index-sort.h"
 
 #define IMAPC_SEARCHCTX(obj) \
 	MODULE_CONTEXT(obj, imapc_storage_module)
@@ -82,6 +84,7 @@ imapc_build_sort_query(struct imapc_mailbox *mbox,
 	return TRUE;
 }
 
+
 struct imapc_search_context {
 	union mail_search_module_context module_ctx;
 
@@ -96,11 +99,6 @@ struct imapc_search_context {
 
 static MODULE_CONTEXT_DEFINE_INIT(imapc_storage_module,
 				  &mail_storage_module_register);
-
-static bool
-imapc_build_search_query_args(struct imapc_mailbox *mbox,
-			      const struct mail_search_arg *args,
-			      bool parent_or, string_t *str);
 
 static bool imapc_search_is_fast_local(const struct mail_search_arg *args)
 {
@@ -295,24 +293,21 @@ imapc_search_init(struct mailbox_transaction_context *t,
 	struct imapc_command *cmd;
 	const char *search_query;
 
-	ctx = index_storage_search_init(t, args, sort_program,
-					wanted_fields, wanted_headers);
-
-	if (sort_program != NULL) {
-		if (!imapc_build_sort_query(mbox, args, sort_program,
-					    &search_query)) {
-			/* can't optimize */
-			return ctx;
-		}
+	if (sort_program != NULL &&
+	    imapc_build_sort_query(mbox, args, sort_program, &search_query)) {
+		ctx = index_storage_search_init(t, args, NULL,
+						wanted_fields, wanted_headers);
+		ictx = i_new(struct imapc_search_context, 1);
 		ictx->sorted = TRUE;
 	} else {
+		ctx = index_storage_search_init(t, args, sort_program,
+						wanted_fields, wanted_headers);
 		if (!imapc_build_search_query(mbox, args, &search_query)) {
 			/* can't optimize this with SEARCH */
 			return ctx;
 		}
+		ictx = i_new(struct imapc_search_context, 1);
 	}
-
-	ictx = i_new(struct imapc_search_context, 1);
 	i_array_init(&ictx->rseqs, 64);
 	i_array_init(&ictx->sorted_uids, 64);
 	MODULE_CONTEXT_SET(ctx, imapc_storage_module, ictx);
@@ -350,11 +345,13 @@ bool imapc_search_next_update_seq(struct mail_search_context *ctx)
 		return index_storage_search_next_update_seq(ctx);
 
 	if (ictx->sorted) {
-		if (ictx->n >= array_count(&ictx->sorted_uids))
-			return FALSE;
-		uidp = array_idx(&ictx->sorted_uids, ictx->n++);
-		ctx->uid = *uidp;
-		return TRUE;
+		while (ictx->n < array_count(&ictx->sorted_uids)) {
+			uidp = array_idx(&ictx->sorted_uids, ictx->n++);
+			ctx->uid = *uidp;
+			if (mail_index_lookup_seq(ctx->transaction->view, ctx->uid, &ctx->seq))
+				return TRUE;
+		}
+		return FALSE;
 	}
 
 	if (!seq_range_array_iter_nth(&ictx->iter, ictx->n++, &ctx->seq))
@@ -398,12 +395,8 @@ void imapc_search_reply_search(const struct imap_arg *args,
 			e_error(event, "Invalid SEARCH reply");
 			break;
 		}
-		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq)) {
-			if (mbox->search_ctx->sorted)
-				array_push_back(&mbox->search_ctx->sorted_uids, &uid);
-			else
-				seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
-		}
+		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq))
+			seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
 	}
 }
 
@@ -430,10 +423,8 @@ void imapc_search_reply_sort(const struct imap_arg *args,
 			     struct imapc_mailbox *mbox)
 {
 	struct event *event = mbox->box.event;
-	struct imapc_msgmap *msgmap =
-		imapc_client_mailbox_get_msgmap(mbox->client_box);
 	const char *atom;
-	uint32_t uid, rseq;
+	uint32_t uid;
 
 	if (mbox->search_ctx == NULL) {
 		e_error(event, "Unexpected SORT reply");
@@ -447,7 +438,6 @@ void imapc_search_reply_sort(const struct imap_arg *args,
 			e_error(event, "Invalid SORT reply");
 			break;
 		}
-		if (imapc_msgmap_uid_to_rseq(msgmap, uid, &rseq))
-			seq_range_array_add(&mbox->search_ctx->rseqs, rseq);
+		array_push_back(&mbox->search_ctx->sorted_uids, &uid);
 	}
 }
