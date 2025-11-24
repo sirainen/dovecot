@@ -270,6 +270,8 @@ anvil_lookup_callback(const struct anvil_reply *reply,
 		sasl_reply = SASL_SERVER_REPLY_MASTER_FAILED_LIMIT;
 		errmsg = t_strdup_printf(ERR_TOO_MANY_USERIP_CONNECTIONS,
 					 set->mail_max_userip_connections);
+		i_free(client->last_failure_reason);
+		client->last_failure_reason = i_strdup(errmsg);
 	}
 	if (sasl_reply != SASL_SERVER_REPLY_SUCCESS) {
 		client->authenticating = FALSE;
@@ -666,6 +668,8 @@ void sasl_server_auth_continue(struct client *client, const char *response)
 void sasl_server_auth_failed(struct client *client, const char *reason,
 			     const char *code)
 {
+	i_free(client->last_failure_reason);
+	client->last_failure_reason = i_strdup(reason);
 	sasl_server_auth_cancel(client, reason, code,
 				SASL_SERVER_REPLY_AUTH_FAILED);
 }
