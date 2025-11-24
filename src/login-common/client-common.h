@@ -431,7 +431,9 @@ int client_sni_callback(const char *name, const char **error_r,
 			void *context);
 
 void client_proxy_finish_destroy_client(struct client *client);
-void client_proxy_log_failure(struct client *client, const char *line);
+void client_proxy_log_failure(struct client *client,
+			      enum login_proxy_failure_type type,
+			      const char *reason);
 const char *client_proxy_get_state(struct client *client);
 
 void clients_notify_auth_connected(void);

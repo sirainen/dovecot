@@ -857,6 +857,7 @@ bool login_proxy_failed(struct login_proxy *proxy, struct event *event,
 	case LOGIN_PROXY_FAILURE_TYPE_PROTOCOL:
 		log_prefix = "Remote server sent invalid input: ";
 		break;
+	case LOGIN_PROXY_FAILURE_TYPE_AUTH_LIMIT_REACHED:
 	case LOGIN_PROXY_FAILURE_TYPE_AUTH_REPLIED:
 	case LOGIN_PROXY_FAILURE_TYPE_AUTH_NOT_REPLIED:
 		log_prefix = "";
@@ -888,7 +889,7 @@ bool login_proxy_failed(struct login_proxy *proxy, struct event *event,
 	    type != LOGIN_PROXY_FAILURE_TYPE_AUTH_TEMPFAIL)
 		e_error(event, "%s%s", log_prefix, reason);
 	else if (proxy->client->set->auth_verbose)
-		client_proxy_log_failure(proxy->client, reason);
+		client_proxy_log_failure(proxy->client, type, reason);
 	proxy->failure_callback(proxy->client, type, reason, FALSE);
 	return FALSE;
 }

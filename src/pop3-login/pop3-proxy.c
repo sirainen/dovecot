@@ -313,6 +313,9 @@ int pop3_proxy_parse_line(struct client *client, const char *line)
 		/* delay sending the reply until we know if we reconnect */
 		failure_type = LOGIN_PROXY_FAILURE_TYPE_AUTH_TEMPFAIL;
 		line += 5;
+	} else if (str_begins_with(line, "-ERR [LIMIT]")) {
+		failure_type = LOGIN_PROXY_FAILURE_TYPE_AUTH_LIMIT_REACHED;
+		line += 5;
 	} else if (pop3_proxy_parse_referral(client, line + 5, &line)) {
 		failure_type = LOGIN_PROXY_FAILURE_TYPE_AUTH_REDIRECT;
 	} else {

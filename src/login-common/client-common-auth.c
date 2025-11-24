@@ -307,15 +307,26 @@ const char *client_proxy_get_state(struct client *client)
 	return client->v.proxy_get_state(client);
 }
 
-void client_proxy_log_failure(struct client *client, const char *line)
-{
-	string_t *str = t_str_new(128);
 
-	str_printfa(str, "Login failed");
-	client_proxy_append_conn_info(str, client);
-	str_append(str, ": ");
-	str_append(str, line);
-	e_info(login_proxy_get_event(client->login_proxy), "%s", str_c(str));
+void client_proxy_log_failure(struct client *client,
+			      enum login_proxy_failure_type type,
+			      const char *reason)
+{
+	struct event_passthrough *e;
+	const char *event_name, *reason_str;
+
+	if (type == LOGIN_PROXY_FAILURE_TYPE_AUTH_LIMIT_REACHED) {
+		event_name = "proxy_dest_limit_reached";
+		reason_str = "proxy dest limit reached";
+	} else {
+		event_name = "proxy_dest_auth_failed";
+		reason_str = "proxy dest authentication failure";
+	}
+
+	e = event_create_passthrough(client->event)->set_name(event_name);
+	e->add_str("reason", t_strconcat(reason_str, ": ", reason, NULL));
+	e_info(e->event(), "proxy: dest %s auth failed: %s",
+	       login_proxy_get_hostport(client->login_proxy), reason);
 }
 
 static void client_proxy_failed(struct client *client)

@@ -289,6 +289,11 @@ static bool auth_resp_code_is_serverbug(const char *resp)
 			   strlen(IMAP_RESP_CODE_SERVERBUG"]")) == 0;
 }
 
+static bool auth_resp_code_is_limit(const char *resp)
+{
+	return strncasecmp(resp, "LIMIT]", 6) == 0;
+}
+
 static bool
 auth_resp_code_parse_referral(struct client *client, const char *resp,
 			      const char **userhostport_r)
@@ -432,6 +437,8 @@ int imap_proxy_parse_line(struct client *client, const char *line)
 			else if (auth_resp_code_parse_referral(client, line + 4,
 							       &log_line))
 				failure_type = LOGIN_PROXY_FAILURE_TYPE_AUTH_REDIRECT;
+			else if (auth_resp_code_is_limit(line + 4))
+				failure_type = LOGIN_PROXY_FAILURE_TYPE_AUTH_LIMIT_REACHED;
 			else if (auth_resp_code_is_serverbug(line + 4))
 				failure_type = LOGIN_PROXY_FAILURE_TYPE_REMOTE;
 			else {
