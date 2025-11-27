@@ -260,7 +260,7 @@ static uint32_t unicode_hangul_compose_pair(uint32_t l, uint32_t r)
 	}
 	/* A sequence <LVPart, TPart> */
 	if (l >= uni_hangul_s_base && l < uni_hangul_s_end &&
-	    r >= (uni_hangul_t_base + 1u) && r < uni_hangul_t_end &&
+	    r > uni_hangul_t_base && r < uni_hangul_t_end &&
 	    ((l - uni_hangul_s_base) % uni_hangul_t_count) == 0) {
 		uint32_t lv_part = l, t_part = r;
 
@@ -424,7 +424,7 @@ unicode_nf_cp(struct unicode_nf_context *ctx, uint32_t cp,
 	/* UAX15-D4: Stream-Safe Text Process is the process of producing a
 	   Unicode string in Stream-Safe Text Format by processing that string
 	   from start to finish, inserting U+034F COMBINING GRAPHEME JOINER
-	   (CGJ) within long sequences of non-starters. The exact position o
+	   (CGJ) within long sequences of non-starters. The exact position of
 	   the inserted CGJs are determined according to the following
 	   algorithm, which describes the generation of an output string from an
 	   input string:
@@ -442,6 +442,12 @@ unicode_nf_cp(struct unicode_nf_context *ctx, uint32_t cp,
 		   nonStarterCount to the number of trailing non-starters in S
 		   (which may be zero).
 	   4. Return the output string.
+
+	   This implementation deviates slightly from the standard by appending
+	   the original code point C instead of its NFKD decomposition S. This
+	   is done to preserve canonical equivalence where possible. The emitted
+	   CGJ characters will still break up long sequences of non-starters,
+	   ensuring stream-safety.
 	 */
 
 	/* Determine number of leading and trailing non-starters in full NFKD
@@ -516,6 +522,12 @@ unicode_nf_cp(struct unicode_nf_context *ctx, uint32_t cp,
 
 	/*
 	 * Apply the Canonical Ordering Algorithm (COA)
+	 *
+	 * The Canonical Ordering Algorithm rearranges combining marks based on
+	 * their Canonical_Combining_Class (ccc) property. This ensures that
+	 * equivalent sequences of combining marks have a unique representation.
+	 * The algorithm iteratively swaps adjacent combining marks if they are
+	 * not in the correct order until the entire sequence is sorted.
 	 */
 
 	bool changed = TRUE;
