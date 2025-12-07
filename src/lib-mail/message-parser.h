@@ -36,6 +36,9 @@ struct message_parser_settings {
 	   MIME sections headers
 	   0 = MESSAGE_PARSER_DEFAULT_ALL_HEADERS_MAX_SIZE */
 	size_t all_headers_max_size;
+
+	/* IMAP4rev2 BODYSTRUCTURE specialty. */
+	bool imap4rev2;
 };
 
 struct message_parser_ctx;

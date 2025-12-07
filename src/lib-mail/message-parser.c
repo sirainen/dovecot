@@ -517,7 +517,8 @@ static void parse_content_type(struct message_parser_ctx *ctx,
 	content_type = t_str_new(64);
 	ret = rfc822_parse_content_type(&parser, content_type);
 
-	if (strcasecmp(str_c(content_type), "message/rfc822") == 0)
+	if (strcasecmp(str_c(content_type), "message/rfc822") == 0 ||
+	    (ctx->imap4rev2 && strcasecmp(str_c(content_type), "message/global") == 0))
 		ctx->part->flags |= MESSAGE_PART_FLAG_MESSAGE_RFC822;
 	else if (str_begins_icase(str_c(content_type), "text", &suffix) &&
 		 (suffix[0] == '\0' || suffix[0] == '/'))
@@ -775,6 +776,7 @@ message_parser_init_int(struct istream *input,
 	ctx->all_headers_max_size = set->all_headers_max_size != 0 ?
 		set->all_headers_max_size :
 		MESSAGE_PARSER_DEFAULT_ALL_HEADERS_MAX_SIZE;
+	ctx->imap4rev2 = set->imap4rev2;
 	ctx->input = input;
 	i_stream_ref(input);
 	return ctx;
