@@ -32,6 +32,7 @@ struct message_parser_ctx {
 	unsigned int max_total_mime_parts;
 	size_t all_headers_max_size;
 	size_t all_headers_total_size;
+	bool imap4rev2;
 
 	char *last_boundary;
 	struct message_boundary *boundaries;

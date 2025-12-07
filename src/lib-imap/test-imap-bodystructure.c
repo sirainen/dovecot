@@ -233,7 +233,23 @@ struct parse_test parse_tests[] = {
 			"(\"text\" \"plain\" (\"charset\" \"us-ascii\") NIL NIL \"7bit\" 0 0 NIL NIL NIL NIL) \"mixed\" (\"boundary\" \"foo\") NIL NIL NIL",
 		.body =
 			"(\"text\" \"plain\" (\"charset\" \"us-ascii\") NIL NIL \"7bit\" 0 0) \"mixed\""
-
+	},{
+		.message =
+			"From: user@domain.org\n"
+			"Date: Sat, 24 Mar 2017 23:00:00 +0200\n"
+			"Mime-Version: 1.0\n"
+			"Content-Type: message/global\n"
+			"\n"
+			"From: user@domain.org\n"
+			"Date: Sat, 24 Mar 2017 23:00:00 +0200\n"
+			"Mime-Version: 1.0\n"
+			"Content-Type: text/plain; charset=us-ascii\n"
+			"\n"
+			"body\n",
+		.bodystructure =
+			"\"message\" \"rfc822\" NIL NIL NIL \"7bit\" 133 (\"Sat, 24 Mar 2017 23:00:00 +0200\" NIL ((NIL NIL \"user\" \"domain.org\")) ((NIL NIL \"user\" \"domain.org\")) ((NIL NIL \"user\" \"domain.org\")) NIL NIL NIL NIL NIL) (\"text\" \"plain\" (\"charset\" \"us-ascii\") NIL NIL \"7bit\" 6 1 NIL NIL NIL NIL) 6 NIL NIL NIL NIL",
+		.body =
+			"\"message\" \"rfc822\" NIL NIL NIL \"7bit\" 133 (\"Sat, 24 Mar 2017 23:00:00 +0200\" NIL ((NIL NIL \"user\" \"domain.org\")) ((NIL NIL \"user\" \"domain.org\")) ((NIL NIL \"user\" \"domain.org\")) NIL NIL NIL NIL NIL) (\"text\" \"plain\" (\"charset\" \"us-ascii\") NIL NIL \"7bit\" 6 1) 6"
 	}
 };
 
@@ -381,14 +397,16 @@ static const unsigned int normalize_tests_count = N_ELEMENTS(normalize_tests);
 
 static struct message_part *
 msg_parse(pool_t pool, const char *message, unsigned int max_nested_mime_parts,
-	  unsigned int max_total_mime_parts, bool parse_bodystructure)
+	  unsigned int max_total_mime_parts, bool parse_bodystructure,
+	  bool imap4rev2)
 {
-	const struct message_parser_settings parser_set = {
+	struct message_parser_settings parser_set = {
 		.hdr_flags = MESSAGE_HEADER_PARSER_FLAG_SKIP_INITIAL_LWSP |
 			MESSAGE_HEADER_PARSER_FLAG_DROP_CR,
 		.flags = MESSAGE_PARSER_FLAG_SKIP_BODY_BLOCK,
 		.max_nested_mime_parts = max_nested_mime_parts,
 		.max_total_mime_parts = max_total_mime_parts,
+		.imap4rev2 = imap4rev2,
 	};
 	struct message_parser_ctx *parser;
 	struct istream *input;
@@ -421,11 +439,12 @@ static void test_imap_bodystructure_write(void)
 		struct parse_test *test = &parse_tests[i];
 		string_t *str = t_str_new(128);
 		pool_t pool = pool_alloconly_create("imap bodystructure write", 1024);
+		bool imap4rev2 = i == parse_tests_count - 1;
 
 		test_begin(t_strdup_printf("imap bodystructure write [%u]", i));
-		parts = msg_parse(pool, test->message, 0, 0, TRUE);
+		parts = msg_parse(pool, test->message, 0, 0, TRUE, imap4rev2);
 
-		test_assert(imap_bodystructure_write(parts, str, TRUE, FALSE, &error) == 0);
+		test_assert(imap_bodystructure_write(parts, str, TRUE, imap4rev2, &error) == 0);
 		test_assert(strcmp(str_c(str), test->bodystructure) == 0);
 
 		str_truncate(str, 0);
@@ -440,7 +459,7 @@ static void test_imap_bodystructure_write(void)
 		test_begin("imap bodystructure write - corrupted");
 		pool_t pool = pool_alloconly_create("imap bodystructure write", 1024);
 
-		parts = msg_parse(pool, "Subject: hello world", 0, 0, TRUE);
+		parts = msg_parse(pool, "Subject: hello world", 0, 0, TRUE, FALSE);
 		i_assert((parts->flags & MESSAGE_PART_FLAG_TEXT) != 0);
 		parts->flags &= ENUM_NEGATE(MESSAGE_PART_FLAG_TEXT);
 
@@ -463,9 +482,10 @@ static void test_imap_bodystructure_parse(void)
 		struct parse_test *test = &parse_tests[i];
 		string_t *str = t_str_new(128);
 		pool_t pool = pool_alloconly_create("imap bodystructure parse", 1024);
+		bool imap4rev2 = i == parse_tests_count - 1;
 
 		test_begin(t_strdup_printf("imap bodystructure parser [%u]", i));
-		parts = msg_parse(pool, test->message, 0, 0, FALSE);
+		parts = msg_parse(pool, test->message, 0, 0, FALSE, imap4rev2);
 
 		test_assert(imap_body_parse_from_bodystructure(test->bodystructure,
 								     str, &error) == 0);
@@ -551,7 +571,7 @@ static void test_imap_bodystructure_parse_invalid(void)
 			&invalid_bodystructure_tests[i];
 		pool_t pool = pool_alloconly_create("imap bodystructure parse", 1024);
 
-		parts = msg_parse(pool, test->message, 0, 0, FALSE);
+		parts = msg_parse(pool, test->message, 0, 0, FALSE, FALSE);
 		test_assert_idx(imap_bodystructure_parse(test->bodystructure,
 							 pool, parts, &error) == -1, i);
 		test_assert(parts->data == NULL);
@@ -605,7 +625,7 @@ static void test_imap_bodystructure_normalize(void)
 		pool_t pool = pool_alloconly_create("imap bodystructure parse", 1024);
 
 		test_begin(t_strdup_printf("imap bodystructure normalize [%u]", i));
-		parts = msg_parse(pool, test->message, 0, 0, FALSE);
+		parts = msg_parse(pool, test->message, 0, 0, FALSE, FALSE);
 
 		ret = imap_bodystructure_parse(test->input,
 							   pool, parts, &error);
@@ -699,7 +719,7 @@ static void test_imap_bodystructure_truncation(void)
 		parts = msg_parse(pool, truncation_tests[i].input,
 				  truncation_tests[i].max_depth,
 				  truncation_tests[i].max_total,
-				  TRUE);
+				  TRUE, FALSE);
 
 		/* write out BODYSTRUCTURE and serialize message_parts */
 		test_assert(imap_bodystructure_write(parts, str_body, TRUE, FALSE, &error) == 0);

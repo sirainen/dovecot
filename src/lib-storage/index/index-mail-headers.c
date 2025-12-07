@@ -400,6 +400,7 @@ index_mail_cache_parse_init(struct mail *_mail, struct istream *input)
 {
 	struct index_mail *mail = INDEX_MAIL(_mail);
 	struct istream *input2;
+	struct message_parser_settings set;
 
 	i_assert(mail->data.tee_stream == NULL);
 	i_assert(mail->data.parser_ctx == NULL);
@@ -420,9 +421,11 @@ index_mail_cache_parse_init(struct mail *_mail, struct istream *input)
 
 	index_mail_parse_header_init(mail, NULL, TRUE);
 	mail->data.parser_input = input;
+
+	set = msg_parser_set;
+	set.imap4rev2 = (_mail->box->enabled_features & MAILBOX_FEATURE_IMAP4REV2) != 0;
 	mail->data.parser_ctx =
-		message_parser_init(mail->mail.data_pool, input,
-				    &msg_parser_set);
+		message_parser_init(mail->mail.data_pool, input, &set);
 	i_stream_unref(&input);
 	return input2;
 }
@@ -432,6 +435,7 @@ static void index_mail_init_parser(struct index_mail *mail)
 	struct index_mail_data *data = &mail->data;
 	struct message_part *parts;
 	const char *error;
+	struct message_parser_settings set;
 
 	if (data->parser_ctx != NULL) {
 		data->parser_input = NULL;
@@ -447,18 +451,21 @@ static void index_mail_init_parser(struct index_mail *mail)
 		}
 	}
 
+	set = msg_parser_set;
+	set.imap4rev2 = (mail->mail.mail.box->enabled_features & MAILBOX_FEATURE_IMAP4REV2) != 0;
+
 	/* make sure parsing starts from the beginning of the stream */
 	i_stream_seek(mail->data.stream, 0);
 	if (data->parts == NULL) {
 		data->parser_input = data->stream;
 		data->parser_ctx = message_parser_init(mail->mail.data_pool,
 						       data->stream,
-						       &msg_parser_set);
+						       &set);
 	} else {
 		data->parser_ctx =
 			message_parser_init_from_parts(data->parts,
 						       data->stream,
-						       &msg_parser_set);
+						       &set);
 	}
 }
 
