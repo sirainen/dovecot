@@ -301,8 +301,8 @@ static int dregex_code_match_int(struct dregex_code *code, const char *subject,
 	if (convert_to_sptr(subject, &subject32, &slen, refuse_non_ascii) < 0)
 		return handle_error(PCRE2_ERROR_BADDATA, error_r);
 
-	/* Empty string is not a match */
-	uint options = PCRE2_NOTEMPTY;
+	/* Reject empty match at the start of the search */
+	uint options = PCRE2_NOTEMPTY_ATSTART;
 
 	if (HAS_ALL_BITS(code->flags, DREGEX_NOTBOL))
 		options |= PCRE2_NOTBOL;
