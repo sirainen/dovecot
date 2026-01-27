@@ -524,6 +524,14 @@ static int io_loop_get_wait_time(struct ioloop *ioloop, struct timeval *tv_r)
 	} else {
 		tv_now.tv_sec = 0;
 		msecs = timeout_get_wait_time(timeout, tv_r, &tv_now, FALSE);
+		if (msecs > 0 && timeout->msecs == 0 && !timeout->one_shot) {
+			/* zero timeout is slightly in the future. this happens if
+			   time is moved backwards and we haven't yet called
+			   io_loop_handle_timeouts() to adjust them. */
+			msecs = 0;
+			tv_r->tv_sec = 0;
+			tv_r->tv_usec = 0;
+		}
 	}
 	ioloop->next_max_time = tv_now;
 	timeval_add_msecs(&ioloop->next_max_time, msecs);
