@@ -310,6 +310,10 @@ static void cmd_id_finish(struct imap_client *client)
 			client_multiplex_output_start(&client->common);
 		}
 		cmd_id_copy_params(client, client->cmd_id->params);
+
+		const char *error;
+		if (client_refresh_settings(&client->common, &error) < 0)
+			e_error(client->common.event, "Settings reload failed: %s", error);
 		msg = "Trusted ID completed.";
 	}
 	client_send_reply(&client->common, IMAP_CMD_REPLY_OK, msg);

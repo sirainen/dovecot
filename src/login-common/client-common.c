@@ -204,7 +204,7 @@ client_log_msg_callback(struct client *client,
 	return client_get_log_str(client, message);
 }
 
-static bool client_is_trusted(struct client *client)
+bool client_is_trusted(struct client *client)
 {
 	const char *const *net;
 	struct ip_addr net_ip;
@@ -702,6 +702,25 @@ void clients_destroy_all_reason(const char *reason)
 void clients_destroy_all(void)
 {
 	clients_destroy_all_reason(MASTER_SERVICE_SHUTTING_DOWN_MSG);
+}
+
+int client_refresh_settings(struct client *client, const char **error_r)
+{
+	event_add_ip(client->event, "local_ip", &client->local_ip);
+	event_add_int(client->event, "local_port", client->local_port);
+	event_add_ip(client->event, "remote_ip", &client->ip);
+	event_add_int(client->event, "remote_port", client->remote_port);
+	if (client->local_name != NULL)
+		event_add_str(client->event, "local_name", client->local_name);
+
+	if (client_settings_reload(client, error_r) < 0)
+		return -1;
+
+	client->connection_trusted = client_is_trusted(client);
+	if (client->connection_trusted &&
+	    strcmp(client->ssl_server_set->ssl, "required") != 0)
+		client->connection_secured = TRUE;
+	return 0;
 }
 
 int client_settings_reload(struct client *client, const char **error_r)
