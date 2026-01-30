@@ -359,6 +359,8 @@ bool client_unref(struct client **client) ATTR_NOWARN_UNUSED_RESULT;
 
 int client_settings_reload(struct client *client, const char **error_r)
 	ATTR_WARN_UNUSED_RESULT;
+int client_refresh_settings(struct client *client, const char **error_r)
+	ATTR_WARN_UNUSED_RESULT;
 
 void client_rawlog_init(struct client *client);
 void client_rawlog_deinit(struct client *client);
@@ -388,6 +390,7 @@ void client_auth_respond(struct client *client, const char *response);
    "*" line. */
 void client_auth_abort(struct client *client);
 bool client_is_tls_enabled(struct client *client);
+bool client_is_trusted(struct client *client);
 void client_auth_fail(struct client *client, const char *text);
 const char *client_get_session_id(struct client *client);
 

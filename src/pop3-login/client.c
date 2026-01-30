@@ -87,6 +87,10 @@ static bool cmd_xclient(struct pop3_client *client, const char *args)
 	}
 
 	/* args ok, set them and reset the state */
+	const char *error;
+	if (client_refresh_settings(&client->common, &error) < 0)
+		e_error(client->common.event, "Settings reload failed: %s", error);
+
 	client_send_reply(&client->common, POP3_CMD_REPLY_OK, "Updated");
 	return TRUE;
 }

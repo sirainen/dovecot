@@ -236,6 +236,10 @@ client_connection_cmd_xclient(void *context,
 			}
 		}
 	}
+
+	const char *error;
+	if (client_refresh_settings(&client->common, &error) < 0)
+		e_error(client->common.event, "Settings reload failed: %s", error);
 }
 
 static void client_connection_disconnect(void *context, const char *reason)
