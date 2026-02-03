@@ -72,14 +72,16 @@ static const struct setting_define stats_exporter_setting_defines[] = {
 	DEF(ENUM, driver),
 	DEF(STR, format),
 	DEF(ENUM, time_format),
+	DEF(STR, otel_endpoint),
 	SETTING_DEFINE_LIST_END
 };
 
 static const struct stats_exporter_settings stats_exporter_default_settings = {
 	.name = "",
-	.driver = "log:file:unix:http-post:drop",
+	.driver = "log:file:unix:http-post:drop:otel",
 	.format = "",
 	.time_format = "rfc3339:unix",
+	.otel_endpoint = "",
 };
 
 const struct setting_parser_info stats_exporter_setting_parser_info = {
@@ -277,6 +279,8 @@ static bool stats_exporter_settings_check(void *_set, pool_t pool ATTR_UNUSED,
 		time_fmt_required = TRUE;
 	} else if (strcmp(set->format, "tab-text") == 0) {
 		time_fmt_required = TRUE;
+	} else if (strcmp(set->format, "otel") == 0) {
+		time_fmt_required = FALSE;
 	} else {
 		*error_r = t_strdup_printf("Unknown exporter format '%s'",
 					   set->format);

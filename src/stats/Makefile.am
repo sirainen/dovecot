@@ -13,6 +13,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/lib-ssl-iostream \
 	-I$(top_srcdir)/src/lib-test \
 	-I$(top_srcdir)/src/lib-var-expand \
+	$(OTEL_CFLAGS) \
 	$(BINARY_CFLAGS)
 
 stats_LDADD = \
@@ -20,6 +21,7 @@ stats_LDADD = \
 	$(LIBDOVECOT) \
 	$(DOVECOT_SSL_LIBS) \
 	$(BINARY_LDFLAGS) \
+	$(OTEL_LIBS) \
 	-lm
 
 stats_DEPENDENCIES = \
@@ -46,6 +48,7 @@ libstats_local_la_SOURCES = \
 	event-exporter-transport-http-post.c \
 	event-exporter-transport-log.c \
 	event-exporter-transport-file.c \
+	event-exporter-otel.cc \
 	$(stats_services) \
 	stats-service.c \
 	stats-event-category.c \
@@ -70,6 +73,7 @@ test_libs = \
 	$(DOVECOT_SSL_LIBS) \
 	$(LIBDOVECOT) \
 	$(BINARY_LDFLAGS) \
+	$(OTEL_LIBS) \
 	-lm
 
 test_deps = \

@@ -10,6 +10,9 @@ static const struct event_exporter_transport *event_exporter_transports[] = {
 	&event_exporter_transport_unix,
 	&event_exporter_transport_http_post,
 	&event_exporter_transport_log,
+#ifdef HAVE_OTEL
+	&event_exporter_transport_otel,
+#endif
 };
 
 static ARRAY(struct event_exporter *) event_exporters;

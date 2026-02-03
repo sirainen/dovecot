@@ -29,6 +29,8 @@ struct event_exporter {
 	const char *format_mime_type;
 
 	const struct event_exporter_transport *transport;
+
+	const char *otel_endpoint;
 };
 
 struct metric_export_info {

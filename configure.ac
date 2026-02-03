@@ -738,6 +738,32 @@ DOVECOT_WANT_TEXTCAT
 DOVECOT_WANT_ICU
 DOVECOT_WANT_PCRE
 
+AC_ARG_WITH(otel,
+AS_HELP_STRING([--with-otel], [Build with OpenTelemetry support (auto)]),
+    want_otel=$withval,
+    want_otel=auto)
+
+if test "$want_otel" != "no"; then
+    PKG_CHECK_MODULES(OTEL, [opentelemetry-cpp], [
+        AC_DEFINE(HAVE_OTEL, 1, [Define if you have OpenTelemetry SDK])
+        have_otel=yes
+    ], [
+        AC_LANG_PUSH([C++])
+        AC_CHECK_HEADER([opentelemetry/version.h], [
+            AC_DEFINE(HAVE_OTEL, 1, [Define if you have OpenTelemetry SDK])
+            OTEL_LIBS="-lopentelemetry_common -lopentelemetry_resources -lopentelemetry_otlp_http_log_record_exporter -lopentelemetry_sdk_logs -lopentelemetry_logs"
+            have_otel=yes
+        ], [
+            if test "$want_otel" = "yes"; then
+                AC_MSG_ERROR([OpenTelemetry SDK not found])
+            fi
+            have_otel=no
+        ])
+        AC_LANG_POP([C++])
+    ])
+fi
+AC_SUBST(OTEL_LIBS)
+
 DOVECOT_WANT_APPARMOR
 
 if test $have_solr = no; then

@@ -12,6 +12,8 @@ struct event_exporter_transport {
 
 	/* function to send the event */
 	void (*send)(struct event_exporter *exporter, const buffer_t *buf);
+	void (*send_event)(struct event_exporter *exporter,
+			   const struct metric *metric, struct event *event);
 
 	void (*reopen)(struct event_exporter *exporter);
 };
@@ -21,6 +23,7 @@ extern const struct event_exporter_transport event_exporter_transport_file;
 extern const struct event_exporter_transport event_exporter_transport_unix;
 extern const struct event_exporter_transport event_exporter_transport_http_post;
 extern const struct event_exporter_transport event_exporter_transport_log;
+extern const struct event_exporter_transport event_exporter_transport_otel;
 
 const struct event_exporter_transport *
 event_exporter_transport_find(const char *name);

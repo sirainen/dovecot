@@ -46,6 +46,7 @@ static int stats_exporters_add_set(struct stats_metrics *metrics,
 		return -1;
 	exporter->name = p_strdup(metrics->pool, set->name);
 	exporter->time_format = set->parsed_time_format;
+	exporter->otel_endpoint = p_strdup(metrics->pool, set->otel_endpoint);
 
 	/* TODO: The following should be plugable.
 	 *
@@ -61,6 +62,9 @@ static int stats_exporters_add_set(struct stats_metrics *metrics,
 	} else if (strcmp(set->format, "tab-text") == 0) {
 		exporter->format = event_export_fmt_tabescaped_text;
 		exporter->format_mime_type = "text/plain";
+	} else if (strcmp(set->format, "otel") == 0) {
+		exporter->format = event_export_fmt_none;
+		exporter->format_mime_type = "application/octet-stream";
 	} else {
 		i_unreached();
 	}
@@ -934,14 +938,18 @@ stats_export_event(struct metric *metric, struct event *oldevent)
 
 	event = event_flatten(oldevent);
 
-	T_BEGIN {
-		buffer_t *buf;
+	if (exporter->transport->send_event != NULL) {
+		exporter->transport->send_event(exporter, metric, event);
+	} else {
+		T_BEGIN {
+			buffer_t *buf;
 
-		buf = t_buffer_create(128);
+			buf = t_buffer_create(128);
 
-		exporter->format(metric, event, buf);
-		exporter->transport->send(exporter, buf);
-	} T_END;
+			exporter->format(metric, event, buf);
+			exporter->transport->send(exporter, buf);
+		} T_END;
+	}
 
 	event_unref(&event);
 }
