@@ -29,12 +29,11 @@ headers = \
 test_programs = test-imap-urlauth
 noinst_PROGRAMS = $(test_programs)
 
-test_imap_urlauth_SOURCES = test-imap-urlauth.c
+test_imap_urlauth_SOURCES = \
+	test-imap-urlauth.c \
+	imap-urlauth.c
+test_imap_urlauth_CPPFLAGS = $(AM_CPPFLAGS) -DUNIT_TESTING
 test_imap_urlauth_LDADD = \
-	libimap-urlauth.la \
-	../lib-imap-storage/libimap-storage.la \
-	../lib-storage/libdovecot-storage.la \
-	../lib-index/libindex.la \
 	../lib-dovecot/libdovecot.la \
 	../lib-test/libtest.la
 
