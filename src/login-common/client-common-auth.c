@@ -371,10 +371,14 @@ static void proxy_input(struct client *client)
 	i_stream_ref(input);
 	o_stream_ref(output);
 	o_stream_cork(output);
+	client_ref(client);
 	while ((line = i_stream_next_line(input)) != NULL) {
 		if (client->v.proxy_parse_line(client, line) != 0)
 			break;
+		if (client->destroyed)
+			break;
 	}
+	client_unref(&client);
 	o_stream_uncork(output);
 	o_stream_unref(&output);
 	i_stream_unref(&input);
@@ -779,9 +783,11 @@ client_auth_handle_reply(struct client *client,
 		   proxy host=.. [port=..] [destuser=..] pass=.. */
 		if (!success)
 			return FALSE;
-		if (proxy_start(client, reply) < 0)
+		if (proxy_start(client, reply) < 0) {
+			client_auth_result(client, CLIENT_AUTH_RESULT_TEMPFAIL, reply,
+					   AUTH_TEMP_FAILED_MSG);
 			client_auth_failed(client);
-		else {
+		} else {
 			/* this for plugins being able th hook into auth reply
 			   when proxying is used */
 			client_auth_result(client, CLIENT_AUTH_RESULT_SUCCESS,
@@ -920,12 +926,15 @@ int client_auth_read_line(struct client *client)
 	str_append_data(client->auth_response, data, i);
 	i_stream_skip(client->input, i == size ? size : i+1);
 
-	/* drop trailing \r */
-	len = str_len(client->auth_response);
-	if (len > 0 && str_c(client->auth_response)[len-1] == '\r')
-		str_truncate(client->auth_response, len-1);
+	if (i < size) {
+		/* drop trailing \r */
+		len = str_len(client->auth_response);
+		if (len > 0 && str_c(client->auth_response)[len-1] == '\r')
+			str_truncate(client->auth_response, len-1);
+		return 1;
+	}
 
-	return i < size ? 1 : 0;
+	return 0;
 }
 
 bool client_auth_parse_response(struct client *client)
@@ -937,13 +946,19 @@ bool client_auth_parse_response(struct client *client)
 
 static void client_auth_input(struct client *client)
 {
+	client_ref(client);
 	i_assert(client->v.auth_parse_response != NULL);
-	if (!client->v.auth_parse_response(client))
+	if (!client->v.auth_parse_response(client)) {
+		client_unref(&client);
 		return;
+	}
 
 	client_auth_respond(client, str_c(client->auth_response));
-	safe_memset(str_c_modifiable(client->auth_response), 0,
-		    str_len(client->auth_response));
+	if (!client->destroyed) {
+		safe_memset(str_c_modifiable(client->auth_response), 0,
+			    str_len(client->auth_response));
+	}
+	client_unref(&client);
 }
 
 void client_auth_send_challenge(struct client *client, const char *data)
