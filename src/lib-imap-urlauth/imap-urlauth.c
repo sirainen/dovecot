@@ -135,14 +135,13 @@ access_applications_have_access(struct imap_urlauth_context *uctx,
 	application = access_applications;
 	for (; *application != NULL; application++) {
 		const char *app = *application;
-		bool have_userid = FALSE;
 		size_t len = strlen(app);
-
-		if (app[len-1] == '+')
-			have_userid = TRUE;
+		bool have_userid = len > 0 && app[len-1] == '+';
+		size_t name_len = have_userid ? len - 1 : len;
 
 		if (strncasecmp(url->uauth_access_application,
-				app, len-1) == 0) {
+				app, name_len) == 0 &&
+		    url->uauth_access_application[name_len] == '\0') {
 			if (!have_userid) {
 				/* This access application must have no userid
 				 */
@@ -178,8 +177,7 @@ imap_urlauth_check_access(struct imap_urlauth_context *uctx,
 				*client_error_r = "URLAUTH `user' access is missing userid";
 				return FALSE;
 			}
-			if (!uctx->access_anonymous ||
-			    strcasecmp(url->uauth_access_user,
+			if (strcasecmp(url->uauth_access_user,
 				       uctx->access_user) == 0)
 				return TRUE;
 		} else if (strcasecmp(url->uauth_access_application,

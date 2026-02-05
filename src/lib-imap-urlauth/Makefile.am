@@ -26,6 +26,22 @@ headers = \
 	imap-urlauth-backend.h \
 	imap-urlauth-connection.h
 
+test_programs = test-imap-urlauth
+noinst_PROGRAMS = $(test_programs)
+
+test_imap_urlauth_SOURCES = test-imap-urlauth.c
+test_imap_urlauth_LDADD = \
+	libimap-urlauth.la \
+	../lib-imap-storage/libimap-storage.la \
+	../lib-storage/libdovecot-storage.la \
+	../lib-index/libindex.la \
+	../lib-dovecot/libdovecot.la \
+	../lib-test/libtest.la
+
+check-local:
+	for bin in $(test_programs); do \
+	  if ! ./$$bin; then exit 1; fi; \
+	done
+
 pkginc_libdir=$(pkgincludedir)
 pkginc_lib_HEADERS = $(headers)
-
