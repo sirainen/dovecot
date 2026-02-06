@@ -38,6 +38,8 @@ struct master_service {
 
 	const char *version_string;
 	char *config_path;
+	int config_socket_fd;
+	char *config_socket_path;
 	ARRAY_TYPE(const_string) config_overrides;
 	struct settings_root *settings_root;
 	int syslog_facility;

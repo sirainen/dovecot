@@ -191,9 +191,19 @@ void auth_user_info_export(string_t *str, const struct auth_user_info *info);
  * Auth cache
  */
 
+struct auth_master_cache_stats {
+	unsigned int hit_count, miss_count;
+	unsigned int pos_entries, neg_entries;
+	unsigned long long pos_size, neg_size;
+	unsigned long long max_size, size_used;
+};
+
 /* Flush authentication cache for everyone (users=NULL) or only for specified
    user_masks. Returns number of users flushed from cache. */
 int auth_master_cache_flush(struct auth_master_connection *conn,
 			    const char *const *user_masks, unsigned int *count_r);
+/* Get authentication cache statistics. */
+int auth_master_cache_stats(struct auth_master_connection *conn,
+			    struct auth_master_cache_stats *stats_r);
 
 #endif
