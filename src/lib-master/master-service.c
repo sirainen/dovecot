@@ -525,6 +525,7 @@ master_service_init(const char *name, enum master_service_flags flags,
 		service_configured_name = name;
 
 	service = i_new(struct master_service, 1);
+	service->config_socket_fd = -1;
 	service->argc = *argc;
 	service->argv = *argv;
 	service->name = i_strdup(name);
@@ -1666,6 +1667,7 @@ static void master_service_deinit_real(struct master_service *service)
 	event_unregister_callback(master_service_event_callback);
 	master_service_unset_process_shutdown_filter(service);
 	i_close_fd(&service->accepted_listener_fd);
+	i_close_fd(&service->config_socket_fd);
 }
 
 static void master_service_free(struct master_service **_service)
@@ -1691,6 +1693,7 @@ static void master_service_free(struct master_service **_service)
 	i_free(service->configured_name);
 	i_free(service->name);
 	i_free(service->config_path);
+	i_free(service->config_socket_path);
 	i_free(service->current_user);
 	i_free(service->last_kick_signal_user);
 	event_unref(&service->event);

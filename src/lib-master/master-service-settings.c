@@ -368,52 +368,63 @@ master_service_open_config(struct master_service *service,
 	*path_r = path;
 	*cached_config_r = FALSE;
 
-	if ((fd = master_service_binary_config_cache_get(cache_dir, path)) != -1) {
-		*cached_config_r = TRUE;
-		return fd;
-	}
+	if (service->config_socket_fd != -1 &&
+	    strcmp(service->config_socket_path, path) == 0) {
+		fd = service->config_socket_fd;
+		*path_r = service->config_socket_path;
+	} else {
+		i_close_fd(&service->config_socket_fd);
+		i_free(service->config_socket_path);
 
-	if ((service->flags & MASTER_SERVICE_FLAG_CONFIG_DEFAULTS) != 0)
-		master_service_exec_config(service, input);
-
-	if (!service->config_path_from_master &&
-	    !service->config_path_changed_with_param &&
-	    !input->always_exec &&
-	    input->config_path == NULL) {
-		/* first try to connect to the default config socket.
-		   configuration may contain secrets, so in default config
-		   this fails because the socket is 0600. it's useful for
-		   developers though. :) */
-		fd = net_connect_unix(DOVECOT_CONFIG_SOCKET_PATH);
-		if (fd >= 0)
-			*path_r = DOVECOT_CONFIG_SOCKET_PATH;
-		else {
-			/* fallback to executing doveconf */
-		}
-	}
-
-	if (fd == -1) {
-		if (stat(path, &st) < 0) {
-			*error_r = errno == EACCES ?
-				eacces_error_get("stat", path) :
-				t_strdup_printf("stat(%s) failed: %m", path);
-			config_error_update_path_source(service, input, error_r);
-			return -1;
+		if ((fd = master_service_binary_config_cache_get(cache_dir, path)) != -1) {
+			*cached_config_r = TRUE;
+			return fd;
 		}
 
-		if (!S_ISSOCK(st.st_mode) && !S_ISFIFO(st.st_mode)) {
-			/* it's not an UNIX socket, don't even try to connect */
-			fd = -1;
-			errno = ENOTSOCK;
-		} else {
-			fd = net_connect_unix_with_retries(path, 1000);
+		if ((service->flags & MASTER_SERVICE_FLAG_CONFIG_DEFAULTS) != 0)
+			master_service_exec_config(service, input);
+
+		if (!service->config_path_from_master &&
+		    !service->config_path_changed_with_param &&
+		    !input->always_exec &&
+		    input->config_path == NULL) {
+			/* first try to connect to the default config socket.
+			   configuration may contain secrets, so in default config
+			   this fails because the socket is 0600. it's useful for
+			   developers though. :) */
+			fd = net_connect_unix(DOVECOT_CONFIG_SOCKET_PATH);
+			if (fd >= 0)
+				*path_r = DOVECOT_CONFIG_SOCKET_PATH;
+			else {
+				/* fallback to executing doveconf */
+			}
 		}
-		if (fd < 0) {
-			*error_r = t_strdup_printf(
-				"net_connect_unix(%s) failed: %m", path);
-			config_exec_fallback(service, input, error_r);
-			return -1;
+
+		if (fd == -1) {
+			if (stat(path, &st) < 0) {
+				*error_r = errno == EACCES ?
+					eacces_error_get("stat", path) :
+					t_strdup_printf("stat(%s) failed: %m", path);
+				config_error_update_path_source(service, input, error_r);
+				return -1;
+			}
+
+			if (!S_ISSOCK(st.st_mode) && !S_ISFIFO(st.st_mode)) {
+				/* it's not an UNIX socket, don't even try to connect */
+				fd = -1;
+				errno = ENOTSOCK;
+			} else {
+				fd = net_connect_unix_with_retries(path, 1000);
+			}
+			if (fd < 0) {
+				*error_r = t_strdup_printf(
+					"net_connect_unix(%s) failed: %m", path);
+				config_exec_fallback(service, input, error_r);
+				return -1;
+			}
 		}
+		service->config_socket_fd = fd;
+		service->config_socket_path = i_strdup(*path_r);
 	}
 	net_set_nonblock(fd, FALSE);
 	string_t *str = t_str_new(128);
@@ -423,19 +434,28 @@ master_service_open_config(struct master_service *service,
 	str_append_c(str, '\n');
 	alarm(CONFIG_READ_TIMEOUT_SECS);
 	int ret = write_full(fd, str_data(str), str_len(str));
-	if (ret < 0)
-		*error_r = t_strdup_printf("write_full(%s) failed: %m", path);
-	else
+	if (ret < 0) {
+		*error_r = t_strdup_printf("write_full(%s) failed: %m", *path_r);
+		i_close_fd(&service->config_socket_fd);
+		i_free(service->config_socket_path);
+	} else {
 		*error_r = NULL;
+	}
 
 	int config_fd = -1;
 	if (ret == 0) {
 		/* read the config fd as reply */
 		char buf[1024];
 		ret = fd_read(fd, buf, sizeof(buf)-1, &config_fd);
-		if (ret < 0)
+		if (ret < 0) {
 			*error_r = t_strdup_printf("fd_read() failed: %m");
-		else if (ret > 0 && buf[0] == '+' && buf[1] == '\n') {
+			i_close_fd(&service->config_socket_fd);
+			i_free(service->config_socket_path);
+		} else if (ret == 0) {
+			*error_r = "Failed to read config: Connection closed";
+			i_close_fd(&service->config_socket_fd);
+			i_free(service->config_socket_path);
+		} else if (ret > 0 && buf[0] == '+' && buf[1] == '\n') {
 			/* success, if fd was received */
 			if (config_fd == -1)
 				*error_r = "Failed to read config: FD not received";
@@ -453,7 +473,6 @@ master_service_open_config(struct master_service *service,
 		}
 	}
 	alarm(0);
-	i_close_fd(&fd);
 
 	if (config_fd == -1) {
 		i_assert(*error_r != NULL);
@@ -550,6 +569,11 @@ master_service_settings_read_int(struct master_service *service,
 		/* first time reading settings */
 		master_service_append_config_overrides(service);
 	}
+	/* Settings were read from a mmaped file. lib-settings keeps the
+	   mmaped file available as long as there are any settings pools
+	   referencing it (via refcounting). So we don't need to do anything
+	   extra here to keep previously mmaped files available for existing
+	   settings structs. */
 	if (fd != -1) {
 		const char *service_name = input->no_service_filter ?
 			NULL : service->name;
@@ -591,11 +615,15 @@ master_service_settings_read_int(struct master_service *service,
 	event_add_str(event, "protocol", input->protocol != NULL ?
 		      input->protocol : service->name);
 
-	settings_free(service->set);
+	const struct master_service_settings *new_set;
 	ret = settings_get(event, &master_service_setting_parser_info,
 			   !input->no_key_validation ? 0 :
 			   SETTINGS_GET_NO_KEY_VALIDATION,
-			   &service->set, error_r);
+			   &new_set, error_r);
+	if (ret >= 0) {
+		settings_free(service->set);
+		service->set = new_set;
+	}
 	event_unref(&event);
 	if (ret < 0)
 		return -1;
