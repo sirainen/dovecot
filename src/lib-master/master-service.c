@@ -350,6 +350,22 @@ sig_delayed_state_changed(const siginfo_t *si ATTR_UNUSED, void *context)
 	master_service_refresh_login_state(service);
 }
 
+static void
+sig_delayed_reload_settings(const siginfo_t *si ATTR_UNUSED, void *context)
+{
+	struct master_service *service = context;
+	struct master_service_settings_input input;
+	struct master_service_settings_output output;
+	const char *error;
+
+	i_zero(&input);
+	input.reload_config = TRUE;
+	if (master_service_settings_read(service, &input, &output, &error) < 0) {
+		e_error(service->event, "Failed to reload configuration: %s",
+			error);
+	}
+}
+
 static bool
 master_service_event_callback(struct event *event,
 			      enum event_callback_type type,
@@ -998,6 +1014,8 @@ void master_service_init_finish(struct master_service *service)
 		lib_signals_set_handler(SIGUSR1, LIBSIG_FLAGS_SAFE,
 					sig_delayed_state_changed, service);
 	}
+	lib_signals_set_handler(SIGUSR2, LIBSIG_FLAGS_SAFE,
+				sig_delayed_reload_settings, service);
 
 	if ((service->flags & MASTER_SERVICE_FLAG_STANDALONE) == 0) {
 		if (fstat(MASTER_STATUS_FD, &st) < 0 || !S_ISFIFO(st.st_mode))
