@@ -52,6 +52,7 @@ SUBDIRS = \
 	lib-index \
 	lib-storage \
 	$(LIBSTORAGE_LUA) \
+	lib-dovecot-storage \
 	lib-imap-urlauth \
 	lib-sql \
 	lib-lda \
