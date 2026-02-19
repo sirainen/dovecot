@@ -51,7 +51,7 @@ struct anvil_connection {
 	struct io *cmd_io;
 
 	char *service;
-	bool master:1;
+	enum anvil_connection_flags flags;
 	bool fifo:1;
 	bool added_to_hash:1;
 };
@@ -386,11 +386,17 @@ anvil_connection_request(struct anvil_connection *conn,
 			 const char *const *args, const char **error_r)
 {
 	const char *cmd = args[0];
-	guid_128_t conn_guid;
 	struct connect_limit_key key;
+	guid_128_t conn_guid;
 	unsigned int value, checksum;
 	time_t stamp;
 	pid_t pid;
+
+	if ((conn->flags & ANVIL_CONNECTION_FLAG_AUTH_PENALTY) != 0 &&
+	    strncmp(cmd, "PENALTY-", 8) != 0) {
+		*error_r = "Only penalty commands allowed";
+		return -1;
+	}
 
 	anvil_global_cmd_counter++;
 	anvil_refresh_proctitle_delayed();
@@ -497,7 +503,7 @@ anvil_connection_request(struct anvil_connection *conn,
 			*error_r = "KILL: Not enough parameters";
 			return -1;
 		}
-		if (!conn->master) {
+		if ((conn->flags & ANVIL_CONNECTION_FLAG_MASTER) == 0) {
 			*error_r = "KILL sent by a non-master connection";
 			return -1;
 		}
@@ -641,7 +647,9 @@ anvil_connection_input_line(struct connection *_conn, const char *line)
 	if (!conn->conn.version_received) {
 		if (!version_string_verify(line, "anvil-client",
 				ANVIL_CLIENT_PROTOCOL_MAJOR_VERSION)) {
-			if (anvil_restarted && (conn->master || conn->fifo)) {
+			if (anvil_restarted &&
+			    ((conn->flags & ANVIL_CONNECTION_FLAG_MASTER) != 0 ||
+			     conn->fifo)) {
 				/* old pending data. ignore input until we get
 				   the handshake. */
 				return 1;
@@ -676,7 +684,7 @@ anvil_connection_input_line(struct connection *_conn, const char *line)
 	return 1;
 }
 
-void anvil_connection_create(int fd, bool master, bool fifo)
+void anvil_connection_create(int fd, enum anvil_connection_flags flags, bool fifo)
 {
 	struct anvil_connection *conn;
 
@@ -690,7 +698,7 @@ void anvil_connection_create(int fd, bool master, bool fifo)
 		o_stream_nsend_str(conn->conn.output,
 				   "VERSION\tanvil-server\t2\t0\n");
 	}
-	conn->master = master;
+	conn->flags = flags;
 	conn->fifo = fifo;
 	i_array_init(&conn->commands, 8);
 }

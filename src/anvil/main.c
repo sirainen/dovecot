@@ -92,10 +92,21 @@ void admin_cmd_send(const char *service, pid_t pid, const char *cmd,
 
 static void client_connected(struct master_service_connection *conn)
 {
-	bool master = conn->listen_fd == MASTER_LISTEN_FD_FIRST;
+	enum anvil_connection_flags flags = 0;
+
+	if (strcmp(conn->name, "anvil") == 0)
+		flags |= ANVIL_CONNECTION_FLAG_MASTER;
+	else if (strcmp(conn->name, "anvil-auth-penalty") == 0)
+		flags |= ANVIL_CONNECTION_FLAG_AUTH_PENALTY;
+	else {
+		/* Fallback for unnamed listeners or if they're named
+		   differently for some reason. */
+		if (conn->listen_fd == MASTER_LISTEN_FD_FIRST)
+			flags |= ANVIL_CONNECTION_FLAG_MASTER;
+	}
 
 	master_service_client_connection_accept(conn);
-	anvil_connection_create(conn->fd, master, conn->fifo);
+	anvil_connection_create(conn->fd, flags, conn->fifo);
 }
 
 static void ATTR_NULL(1)
