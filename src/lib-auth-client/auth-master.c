@@ -1500,3 +1500,75 @@ int auth_master_cache_flush(struct auth_master_connection *conn,
 	*count_r = ctx.count;
 	return ctx.failed ? -1 : 0;
 }
+
+/* CACHE-STATS */
+
+struct auth_master_cache_stats_ctx {
+	struct auth_master_connection *conn;
+	struct event *event;
+	struct auth_master_cache_stats *stats;
+	bool failed;
+};
+
+static int
+auth_cache_stats_reply_callback(const struct auth_master_reply *reply,
+				struct auth_master_cache_stats_ctx *ctx)
+{
+	const char *const *args = reply->args;
+
+	if (reply->errormsg != NULL) {
+		ctx->failed = TRUE;
+		return 1;
+	}
+	i_assert(reply->reply != NULL);
+	i_assert(args != NULL);
+
+	if (strcmp(reply->reply, "OK") != 0)
+		ctx->failed = TRUE;
+	else if (str_array_length(args) < 8)
+		ctx->failed = TRUE;
+	else if (str_to_uint(args[0], &ctx->stats->hit_count) < 0 ||
+		 str_to_uint(args[1], &ctx->stats->miss_count) < 0 ||
+		 str_to_uint(args[2], &ctx->stats->pos_entries) < 0 ||
+		 str_to_uint(args[3], &ctx->stats->neg_entries) < 0 ||
+		 str_to_ullong(args[4], &ctx->stats->pos_size) < 0 ||
+		 str_to_ullong(args[5], &ctx->stats->neg_size) < 0 ||
+		 str_to_ullong(args[6], &ctx->stats->max_size) < 0 ||
+		 str_to_ullong(args[7], &ctx->stats->size_used) < 0)
+		ctx->failed = TRUE;
+
+	return 1;
+}
+
+int auth_master_cache_stats(struct auth_master_connection *conn,
+			    struct auth_master_cache_stats *stats_r)
+{
+	struct auth_master_cache_stats_ctx ctx;
+	struct auth_master_request *req;
+
+	if (auth_master_connect(conn) < 0)
+		return -1;
+
+	i_zero(&ctx);
+	ctx.conn = conn;
+	ctx.stats = stats_r;
+
+	ctx.event = event_create(conn->conn.event);
+	event_drop_parent_log_prefixes(ctx.event, 1);
+	event_set_append_log_prefix(ctx.event, "auth cache stats: ");
+
+	e_debug(ctx.event, "Started cache stats");
+
+	req = auth_master_request(conn, "CACHE-STATS", NULL, 0,
+				  auth_cache_stats_reply_callback, &ctx);
+	auth_master_request_set_event(req, ctx.event);
+	(void)auth_master_request_wait(req);
+
+	if (ctx.failed)
+		e_debug(ctx.event, "Cache stats failed");
+	else
+		e_debug(ctx.event, "Finished cache stats");
+	event_unref(&ctx.event);
+
+	return ctx.failed ? -1 : 0;
+}

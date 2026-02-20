@@ -500,6 +500,37 @@ static void cmd_auth_cache_flush(struct doveadm_cmd_context *cctx)
 	auth_master_deinit(&conn);
 }
 
+static void cmd_auth_cache_status(struct doveadm_cmd_context *cctx)
+{
+	const char *master_socket_path;
+	struct auth_master_connection *conn;
+	struct auth_master_cache_stats stats;
+	unsigned int total_count;
+
+	if (!doveadm_cmd_param_str(cctx, "socket-path", &master_socket_path)) {
+		master_socket_path = t_strconcat(doveadm_settings->base_dir,
+						 "/auth-master", NULL);
+	}
+
+	conn = doveadm_get_auth_master_conn(master_socket_path);
+	if (auth_master_cache_stats(conn, &stats) < 0) {
+		e_error(cctx->event, "Cache stats failed");
+		doveadm_exit_code = EX_TEMPFAIL;
+	} else {
+		total_count = stats.hit_count + stats.miss_count;
+		printf("Authentication cache hits %u/%u (%u%%)\n",
+		       stats.hit_count, total_count,
+		       total_count == 0 ? 100 : (stats.hit_count * 100 / total_count));
+		printf("Authentication cache inserts: positive: %u entries %llu bytes, negative: %u entries %llu bytes\n",
+		       stats.pos_entries, stats.pos_size,
+		       stats.neg_entries, stats.neg_size);
+		printf("Authentication cache current size: %llu bytes used of %llu bytes (%u%%)\n",
+		       stats.size_used, stats.max_size,
+		       stats.max_size == 0 ? 0 : (unsigned int)(stats.size_used * 100 / stats.max_size));
+	}
+	auth_master_deinit(&conn);
+}
+
 static void authtest_input_init(struct authtest_input *input)
 {
 	dsasl_clients_init();
@@ -954,6 +985,14 @@ DOVEADM_CMD_PARAMS_END
 DOVEADM_CMD_PARAMS_START
 DOVEADM_CMD_PARAM('a', "socket-path", CMD_PARAM_STR, 0)
 DOVEADM_CMD_PARAM('\0', "user-mask", CMD_PARAM_ARRAY, CMD_PARAM_FLAG_POSITIONAL)
+DOVEADM_CMD_PARAMS_END
+},
+{
+	.cmd = cmd_auth_cache_status,
+	.name = "auth cache status",
+	.usage = "[-a <master socket path>]",
+DOVEADM_CMD_PARAMS_START
+DOVEADM_CMD_PARAM('a', "socket-path", CMD_PARAM_STR, 0)
 DOVEADM_CMD_PARAMS_END
 },
 {

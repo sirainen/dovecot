@@ -350,6 +350,22 @@ sig_delayed_state_changed(const siginfo_t *si ATTR_UNUSED, void *context)
 	master_service_refresh_login_state(service);
 }
 
+static void
+sig_delayed_reload_settings(const siginfo_t *si ATTR_UNUSED, void *context)
+{
+	struct master_service *service = context;
+	struct master_service_settings_input input;
+	struct master_service_settings_output output;
+	const char *error;
+
+	i_zero(&input);
+	input.reload_config = TRUE;
+	if (master_service_settings_read(service, &input, &output, &error) < 0) {
+		e_error(service->event, "Failed to reload configuration: %s",
+			error);
+	}
+}
+
 static bool
 master_service_event_callback(struct event *event,
 			      enum event_callback_type type,
@@ -525,6 +541,7 @@ master_service_init(const char *name, enum master_service_flags flags,
 		service_configured_name = name;
 
 	service = i_new(struct master_service, 1);
+	service->config_socket_fd = -1;
 	service->argc = *argc;
 	service->argv = *argv;
 	service->name = i_strdup(name);
@@ -997,6 +1014,8 @@ void master_service_init_finish(struct master_service *service)
 		lib_signals_set_handler(SIGUSR1, LIBSIG_FLAGS_SAFE,
 					sig_delayed_state_changed, service);
 	}
+	lib_signals_set_handler(SIGUSR2, LIBSIG_FLAGS_SAFE,
+				sig_delayed_reload_settings, service);
 
 	if ((service->flags & MASTER_SERVICE_FLAG_STANDALONE) == 0) {
 		if (fstat(MASTER_STATUS_FD, &st) < 0 || !S_ISFIFO(st.st_mode))
@@ -1666,6 +1685,7 @@ static void master_service_deinit_real(struct master_service *service)
 	event_unregister_callback(master_service_event_callback);
 	master_service_unset_process_shutdown_filter(service);
 	i_close_fd(&service->accepted_listener_fd);
+	i_close_fd(&service->config_socket_fd);
 }
 
 static void master_service_free(struct master_service **_service)
@@ -1691,6 +1711,7 @@ static void master_service_free(struct master_service **_service)
 	i_free(service->configured_name);
 	i_free(service->name);
 	i_free(service->config_path);
+	i_free(service->config_socket_path);
 	i_free(service->current_user);
 	i_free(service->last_kick_signal_user);
 	event_unref(&service->event);

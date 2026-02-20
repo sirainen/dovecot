@@ -179,6 +179,32 @@ static int master_input_cache_flush(struct auth_master_connection *conn,
 	return 1;
 }
 
+static int master_input_cache_stats(struct auth_master_connection *conn,
+				     const char *const *args)
+{
+	struct auth_cache_stats stats;
+
+	/* <id> */
+	if (args[0] == NULL) {
+		e_error(conn->conn.event, "BUG: doveadm sent broken CACHE-STATS");
+		return -1;
+	}
+
+	if (passdb_cache == NULL) {
+		i_zero(&stats);
+	} else {
+		auth_cache_get_stats(passdb_cache, &stats);
+	}
+
+	o_stream_nsend_str(conn->conn.output,
+		t_strdup_printf("OK\t%s\t%u\t%u\t%u\t%u\t%llu\t%llu\t%zu\t%zu\n",
+				args[0], stats.hit_count, stats.miss_count,
+				stats.pos_entries, stats.neg_entries,
+				stats.pos_size, stats.neg_size,
+				stats.max_size, stats.size_used));
+	return 1;
+}
+
 static int master_input_auth_request(struct auth_master_connection *conn,
 				     const char *const *args, const char *cmd,
 				     struct auth_request **request_r,
@@ -682,6 +708,8 @@ static int auth_master_input_args(struct connection *_conn,
 			return master_input_request(conn, args + 1);
 		if (strcmp(args[0], "CACHE-FLUSH") == 0)
 			return master_input_cache_flush(conn, args + 1);
+		if (strcmp(args[0], "CACHE-STATS") == 0)
+			return master_input_cache_stats(conn, args + 1);
 		if (strcmp(args[0], "CPID") == 0) {
 			e_error(_conn->event,
 				"Authentication client trying to connect to "
