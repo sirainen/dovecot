@@ -1547,7 +1547,17 @@ event_import_field(struct event *event, enum event_code code, const char *arg,
 		*error_r = "Field name is missing";
 		return FALSE;
 	}
-	struct event_field *field = event_get_field(event, arg, TRUE);
+	struct event_field *field;
+	if (code == EVENT_CODE_FIELD_STR) {
+		field = event_find_field_nonrecursive(event, arg);
+		if (field != NULL && field->value_type == EVENT_FIELD_VALUE_TYPE_STR &&
+		    null_strcmp(field->value.str, *args) == 0) {
+			/* identical value - skip */
+			*_args += 1;
+			return TRUE;
+		}
+	}
+	field = event_get_field(event, arg, TRUE);
 	if (args[0] == NULL) {
 		*error_r = "Field value is missing";
 		return FALSE;
@@ -1563,11 +1573,6 @@ event_import_field(struct event *event, enum event_code code, const char *arg,
 		}
 		break;
 	case EVENT_CODE_FIELD_STR:
-		if (field->value_type == EVENT_FIELD_VALUE_TYPE_STR &&
-		    null_strcmp(field->value.str, *args) == 0) {
-			/* already identical value */
-			break;
-		}
 		field->value_type = EVENT_FIELD_VALUE_TYPE_STR;
 		field->value.str = p_strdup(event->pool, *args);
 		break;
