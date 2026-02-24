@@ -11,6 +11,8 @@
 
 #include <limits.h>
 
+#define RFC2231_MAX_PARAMS 1024
+
 /* https://www.rfc-editor.org/rfc/rfc2231
    https://www.rfc-editor.org/rfc/rfc822
 
@@ -126,6 +128,8 @@ static bool result_contains(const ARRAY_TYPE(const_string) *result,
 static void result_append(ARRAY_TYPE(const_string) *result,
 			  const char *key, const char *value)
 {
+	if (array_count(result) >= RFC2231_MAX_PARAMS * 2)
+		return;
 	if (!result_contains(result, key)) {
 		array_push_back(result, &key);
 		array_push_back(result, &value);
@@ -201,7 +205,7 @@ int rfc2231_parse(struct rfc822_parser_context *ctx,
 	struct rfc2231_parameter rfc2231_param;
 	const char *key, *p, *p2;
 	string_t *str;
-	unsigned int i, j, count, next, next_idx;
+	unsigned int i, j, count, next, next_idx, params_count = 0;
 	bool ok, broken = FALSE;
 	const char *prev_replacement_str;
 	int ret;
@@ -219,6 +223,8 @@ int rfc2231_parse(struct rfc822_parser_context *ctx,
 	t_array_init(&rfc2231_params_arr, 8);
 	str = t_str_new(64);
 	while ((ret = rfc822_parse_content_param(ctx, &key, str)) != 0) {
+		if (++params_count > RFC2231_MAX_PARAMS)
+			break;
 		if (ret < 0) {
 			/* try to continue anyway.. */
 			broken = TRUE;

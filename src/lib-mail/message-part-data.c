@@ -12,6 +12,8 @@
 
 #include "message-part-data.h"
 
+#define CONTENT_LANGUAGE_MAX_COUNT 1024
+
 const char *message_part_envelope_headers[] = {
 	"Date", "Subject", "From", "Sender", "Reply-To",
 	"To", "Cc", "Bcc", "In-Reply-To", "Message-ID",
@@ -455,8 +457,11 @@ parse_content_language(struct message_part_data *data,
 	t_array_init(&langs, 16);
 	str = t_str_new(128);
 
+	unsigned int count = 0;
 	rfc822_skip_lwsp(&parser);
 	while (rfc822_parse_atom(&parser, str) >= 0) {
+		if (++count > CONTENT_LANGUAGE_MAX_COUNT)
+			break;
 		const char *lang = p_strdup(pool, str_c(str));
 
 		array_push_back(&langs, &lang);

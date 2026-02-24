@@ -552,6 +552,25 @@ static void test_message_address_path_invalid(void)
 	test_end();
 }
 
+static void test_message_address_limits(void)
+{
+	string_t *input = t_str_new(1024);
+	struct message_address_list list;
+
+	test_begin("message address limits");
+	for (unsigned int i = 0; i < 10100; i++) {
+		str_append(input, "a@b, ");
+	}
+	message_address_parse_full(pool_datastack_create(),
+				   (const unsigned char *)str_data(input),
+				   str_len(input), UINT_MAX, 0, &list);
+	unsigned int count = 0;
+	for (struct message_address *addr = list.head; addr != NULL; addr = addr->next)
+		count++;
+	test_assert(count == 10000);
+	test_end();
+}
+
 int main(void)
 {
 	static void (*const test_functions[])(void) = {
@@ -562,6 +581,7 @@ int main(void)
 		test_message_address_non_strict_dots,
 		test_message_address_path,
 		test_message_address_path_invalid,
+		test_message_address_limits,
 		NULL
 	};
 	return test_run(test_functions);

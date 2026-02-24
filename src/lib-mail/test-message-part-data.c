@@ -1,6 +1,7 @@
 /* Copyright (c) 2023-2025 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
+#include "str.h"
 #include "istream.h"
 #include "message-parser.h"
 #include "message-part-data.h"
@@ -201,6 +202,43 @@ static void test_message_attachment_with_ct_name(void)
 	test_message_part_attachment(test_name, input, TRUE, "foo.pdf");
 }
 
+static void test_message_part_data_content_language_limit(void)
+{
+	struct message_part_data data;
+	pool_t pool;
+	string_t *value;
+
+	test_begin("message part data Content-Language limit");
+
+	pool = pool_alloconly_create("content language", 1024);
+	i_zero(&data);
+
+	value = t_str_new(1024);
+	for (unsigned int i = 0; i < 1100; i++) {
+		if (i > 0) str_append_c(value, ',');
+		str_printfa(value, "en%u", i);
+	}
+
+	struct message_header_line hdr;
+	i_zero(&hdr);
+	hdr.name = "Content-Language";
+	hdr.full_value = (const unsigned char *)str_data(value);
+	hdr.full_value_len = str_len(value);
+
+	struct message_part part;
+	i_zero(&part);
+	message_part_data_parse_from_header(pool, &part, &hdr);
+
+	unsigned int count = 0;
+	if (part.data->content_language != NULL) {
+		for (; part.data->content_language[count] != NULL; count++) ;
+	}
+	test_assert(count == 1024);
+
+	pool_unref(&pool);
+	test_end();
+}
+
 int main(void)
 {
 	static void (*const test_functions[])(void) = {
@@ -214,6 +252,7 @@ int main(void)
 		test_message_attachment_without_filename,
 		test_message_inline_with_cd_filename_star,
 		test_message_attachment_with_cd_filename_star,
+		test_message_part_data_content_language_limit,
 		NULL
 	};
 	return test_run(test_functions);

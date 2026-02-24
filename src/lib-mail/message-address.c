@@ -9,6 +9,8 @@
 #include "message-address.h"
 #include "rfc822-parser.h"
 
+#define MESSAGE_ADDRESS_MAX_COUNT 10000
+
 struct message_address_parser_context {
 	pool_t pool;
 	struct rfc822_parser_context parser;
@@ -447,6 +449,9 @@ message_address_parse_real(pool_t pool, const unsigned char *data, size_t size,
 			   struct message_address_list *list_r)
 {
 	struct message_address_parser_context ctx;
+
+	if (max_addresses == 0 || max_addresses > MESSAGE_ADDRESS_MAX_COUNT)
+		max_addresses = MESSAGE_ADDRESS_MAX_COUNT;
 
 	i_zero(&ctx);
 
