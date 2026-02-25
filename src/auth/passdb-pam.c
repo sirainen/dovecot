@@ -113,9 +113,11 @@ pam_userpass_conv(int num_msg, pam_const struct pam_message **msg,
 
 	*resp_r = NULL;
 
+	int old_errno = errno;
 	resp = calloc(num_msg, sizeof(struct pam_response));
 	if (resp == NULL)
 		i_fatal_status(FATAL_OUTOFMEM, "Out of memory");
+	errno = old_errno;
 
 	for (i = 0; i < num_msg; i++) {
 		e_debug(authdb_event(ctx->request),
@@ -143,6 +145,7 @@ pam_userpass_conv(int num_msg, pam_const struct pam_message **msg,
 			string = NULL;
 			break;
 		default:
+			old_errno = errno;
 			while (--i >= 0) {
 				if (resp[i].resp != NULL) {
 					safe_memset(resp[i].resp, 0,
@@ -152,6 +155,7 @@ pam_userpass_conv(int num_msg, pam_const struct pam_message **msg,
 			}
 
 			free(resp);
+			errno = old_errno;
 			return PAM_CONV_ERR;
 		}
 

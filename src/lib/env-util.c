@@ -54,7 +54,10 @@ void env_clean(void)
 	   c) environ = emptyenv doesn't work on Haiku OS
 	   d) environ = calloc() should work everywhere
 	*/
+	int old_errno = errno;
 	*environ_p = calloc(1, sizeof(**environ_p));
+	if (*environ_p != NULL)
+		errno = old_errno;
 #endif
 }
 

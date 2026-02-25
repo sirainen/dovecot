@@ -84,9 +84,11 @@ static char **argv_dup(char *old_argv[], void **memblock_r)
 		memblock_len += strlen(old_argv[count]) + 1;
 	memblock_len += sizeof(char *) * (count + 1);
 
+	int old_errno = errno;
 	memblock = malloc(memblock_len);
 	if (memblock == NULL)
 		i_fatal_status(FATAL_OUTOFMEM, "malloc() failed: %m");
+	errno = old_errno;
 	*memblock_r = memblock;
 	memblock_end = PTR_OFFSET(memblock, memblock_len);
 
@@ -180,9 +182,11 @@ void process_title_deinit(void)
 {
 #ifdef PROCTITLE_HACK
 	char ***environ_p = env_get_environ_p();
+	int old_errno = errno;
 
 	free(argv_memblock);
 	free(environ_memblock);
+	errno = old_errno;
 
 	/* Environment is no longer usable. Make sure we won't crash in case
 	   some library's deinit function still calls getenv(). This code was

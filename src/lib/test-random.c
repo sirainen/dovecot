@@ -51,19 +51,31 @@ static void test_random_fill(void)
 	for (unsigned int i = 0; i <= (2*RANDOM_READ_BUFFER_SIZE)+1; i++) {
 		/* Rely on valgrind to verify that there are no uninitialized
 		   bytes, so don't use i_malloc(). */
+		int old_errno = errno;
 		unsigned char *buf = malloc(i);
+		if (buf != NULL)
+			errno = old_errno;
 		random_fill(buf, i);
 		hash ^= mem_hash(buf, i);
+
+		old_errno = errno;
 		free(buf);
+		errno = old_errno;
 	}
 	/* Try also with some random small numbers */
 	for (unsigned int i = 0; i < 100; i++) {
 		/* 32 = RANDOM_READ_BUFFER_SIZE */
 		unsigned int size = i_rand_minmax(1, RANDOM_READ_BUFFER_SIZE);
+		int old_errno = errno;
 		unsigned char *buf = malloc(size);
+		if (buf != NULL)
+			errno = old_errno;
 		random_fill(buf, size);
 		hash ^= mem_hash(buf, size);
+
+		old_errno = errno;
 		free(buf);
+		errno = old_errno;
 	}
 	test_out_reason("hash", TRUE, dec2str(hash));
 	test_end();
