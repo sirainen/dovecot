@@ -210,39 +210,58 @@ static bool message_decode_header(struct message_decoder_context *ctx,
 static void translation_buf_decode(struct message_decoder_context *ctx,
 				   const unsigned char **data, size_t *size)
 {
-	unsigned char trans_buf[CHARSET_MAX_PENDING_BUF_SIZE+1];
-	size_t data_wanted, skip;
-	size_t trans_size, orig_size;
+	while (*size > 0 && ctx->translation_size > 0) {
+		unsigned char trans_buf[CHARSET_MAX_PENDING_BUF_SIZE+1];
+		size_t data_wanted;
+		size_t trans_size, orig_size;
 
-	/* @UNSAFE: move the previously untranslated bytes to trans_buf
-	   and see if we have now enough data to get the next character
-	   translated */
-	memcpy(trans_buf, ctx->translation_buf, ctx->translation_size);
-	data_wanted = sizeof(trans_buf) - ctx->translation_size;
-	if (data_wanted > *size)
-		data_wanted = *size;
-	memcpy(trans_buf + ctx->translation_size, *data, data_wanted);
+		/* @UNSAFE: move the previously untranslated bytes to trans_buf
+		   and see if we have now enough data to get the next character
+		   translated */
+		memcpy(trans_buf, ctx->translation_buf, ctx->translation_size);
+		data_wanted = sizeof(trans_buf) - ctx->translation_size;
+		if (data_wanted > *size)
+			data_wanted = *size;
+		memcpy(trans_buf + ctx->translation_size, *data, data_wanted);
 
-	orig_size = trans_size = ctx->translation_size + data_wanted;
-	(void)charset_to_utf8(ctx->charset_trans, trans_buf,
-			      &trans_size, ctx->buf2);
+		orig_size = trans_size = ctx->translation_size + data_wanted;
+		(void)charset_to_utf8(ctx->charset_trans, trans_buf,
+				      &trans_size, ctx->buf2);
 
-	if (trans_size <= ctx->translation_size) {
-		/* need more data to finish the translation. */
-		i_assert(orig_size < CHARSET_MAX_PENDING_BUF_SIZE);
-		memcpy(ctx->translation_buf, trans_buf, orig_size);
-		ctx->translation_size = orig_size;
-		*data += *size;
-		*size = 0;
-		return;
+		if (trans_size <= ctx->translation_size) {
+			/* we didn't consume all of the old translation_buf. */
+			size_t old_left = ctx->translation_size - trans_size;
+			size_t remaining = orig_size - trans_size;
+
+			if (remaining > sizeof(ctx->translation_buf))
+				remaining = sizeof(ctx->translation_buf);
+
+			memcpy(ctx->translation_buf, trans_buf + trans_size, remaining);
+			ctx->translation_size = remaining;
+
+			size_t kept_from_data = remaining > old_left ? remaining - old_left : 0;
+			i_assert(kept_from_data <= data_wanted);
+			*data += kept_from_data;
+			*size -= kept_from_data;
+
+			if (trans_size == 0) {
+				/* No progress. Either we need more data or the
+				   input is invalid but we're already at the
+				   maximum buffer size. */
+				break;
+			}
+		} else {
+			/* we consumed all of the old translation_buf, and some
+			   of the new data. */
+			size_t skip = trans_size - ctx->translation_size;
+
+			i_assert(*size >= skip);
+			*data += skip;
+			*size -= skip;
+
+			ctx->translation_size = 0;
+		}
 	}
-	skip = trans_size - ctx->translation_size;
-
-	i_assert(*size >= skip);
-	*data += skip;
-	*size -= skip;
-
-	ctx->translation_size = 0;
 }
 
 static void
