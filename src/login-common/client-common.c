@@ -543,11 +543,7 @@ void client_destroy(struct client *client, const char *reason)
 	timeout_remove(&client->to_disconnect);
 	timeout_remove(&client->to_auth_waiting);
 	timeout_remove(&client->to_notify_auth_ready);
-	if (client->dns_lookup != NULL) {
-		dns_lookup_abort(&client->dns_lookup);
-		struct client *tmp = client;
-		(void)client_unref(&tmp);
-	}
+	dns_lookup_abort(&client->dns_lookup);
 	str_free(&client->auth_response);
 	i_free(client->auth_conn_cookie);
 

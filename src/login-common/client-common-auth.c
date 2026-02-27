@@ -75,6 +75,18 @@ static void ATTR_NULL(3, 4)
 client_auth_result(struct client *client, enum client_auth_result result,
 		   const struct client_auth_reply *reply, const char *text);
 
+static int login_dns_client_init(struct event *event, const char **error_r)
+{
+	if (login_dns_client != NULL)
+		return 0;
+
+	struct dns_client_parameters dns_params = {
+		.idle_timeout_msecs = 60 * 1000,
+		.socket_path = global_login_settings->dns_client_socket_path,
+	};
+	return dns_client_init(&dns_params, event, &login_dns_client, error_r);
+}
+
 static void client_dns_lookup_callback(const struct dns_lookup_result *result,
 				       struct client *client)
 {
@@ -471,15 +483,20 @@ proxy_redirect_reauth_callback(struct auth_client_request *request,
 		if (reply.proxy.proxy) {
 			if (reply.proxy.host_ip.family == 0) {
 				/* hostname needs to be resolved */
+				const char *error;
+				if (login_dns_client_init(client->event, &error) < 0) {
+					e_error(client->event, "proxy: DNS client init failed: %s",
+						error);
+					client_auth_failed(client);
+					return;
+				}
 				client->auth_proxy_reply_success = TRUE;
 				client->auth_proxy_reply_reauth = TRUE;
 				client_ref(client);
-				struct dns_client_parameters dns_params = {
-					.socket_path = client->set->dns_client_socket_path,
-				};
-				if (dns_lookup(reply.proxy.host, &dns_params, client->event,
-					       client_dns_lookup_callback, client,
-					       &client->dns_lookup) < 0) {
+				if (dns_client_lookup(login_dns_client, reply.proxy.host,
+						     client->event,
+						     client_dns_lookup_callback, client,
+						     &client->dns_lookup) < 0) {
 					/* failed to start lookup, callback already called */
 				}
 				return;
@@ -851,16 +868,21 @@ client_auth_handle_reply(struct client *client,
 
 		if (reply->proxy.host_ip.family == 0) {
 			/* hostname needs to be resolved */
+			const char *error;
+			if (login_dns_client_init(client->event, &error) < 0) {
+				e_error(client->event, "proxy: DNS client init failed: %s",
+					error);
+				client_auth_failed(client);
+				return TRUE;
+			}
 			client->auth_passdb_args = p_strarray_dup(client->pool, reply->all_fields);
 			client->auth_proxy_reply_success = success;
 			client->auth_proxy_reply_reauth = FALSE;
 			client_ref(client);
-			struct dns_client_parameters dns_params = {
-				.socket_path = client->set->dns_client_socket_path,
-			};
-			if (dns_lookup(reply->proxy.host, &dns_params, client->event,
-				       client_dns_lookup_callback, client,
-				       &client->dns_lookup) < 0) {
+			if (dns_client_lookup(login_dns_client, reply->proxy.host,
+					     client->event,
+					     client_dns_lookup_callback, client,
+					     &client->dns_lookup) < 0) {
 				/* failed to start lookup, callback already called */
 			}
 			return TRUE;
