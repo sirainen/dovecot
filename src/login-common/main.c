@@ -21,6 +21,7 @@
 #include "master-service-settings.h"
 #include "login-proxy.h"
 #include "settings-parser.h"
+#include "dns-lookup.h"
 
 #include <unistd.h>
 #include <syslog.h>
@@ -33,6 +34,7 @@ static struct event_category event_category_auth = {
 
 struct login_binary *login_binary;
 struct auth_client *auth_client;
+struct dns_client *login_dns_client;
 struct login_client_list *login_client_list;
 bool closing_down, login_debug;
 struct anvil_client *anvil;
@@ -441,6 +443,7 @@ static void main_deinit(void)
 	client_destroy_fd_proxies();
 	ssl_iostream_context_cache_free();
 	login_proxy_deinit();
+	dns_client_deinit(&login_dns_client);
 
 	login_binary->deinit();
 	module_dir_unload(&modules);
