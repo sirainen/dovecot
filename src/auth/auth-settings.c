@@ -314,7 +314,6 @@ static const struct setting_define auth_setting_defines[] = {
 	DEF(STR, gssapi_hostname),
 	DEF(STR, winbind_helper_path),
 #endif
-	DEF(STR, proxy_self),
 	DEF(TIME, failure_delay),
 	DEF(TIME_MSECS, internal_failure_delay),
 
@@ -375,7 +374,6 @@ static const struct auth_settings auth_default_settings = {
 	.krb5_keytab = "",
 	.gssapi_hostname = "",
 	.winbind_helper_path = "/usr/bin/ntlm_auth",
-	.proxy_self = "",
 	.failure_delay = 2,
 	.internal_failure_delay = 2000,
 
@@ -467,37 +465,6 @@ const struct setting_parser_info auth_policy_request_setting_parser_info = {
 };
 
 /* <settings checks> */
-static bool
-auth_settings_set_self_ips(struct auth_settings *set, pool_t pool,
-			   const char **error_r)
-{
-	const char *const *tmp;
-	ARRAY(struct ip_addr) ips_array;
-	struct ip_addr *ips;
-	unsigned int ips_count;
-	int ret;
-
-	if (*set->proxy_self == '\0') {
-		set->proxy_self_ips = p_new(pool, struct ip_addr, 1);
-		return TRUE;
-	}
-
-	p_array_init(&ips_array, pool, 4);
-	tmp = t_strsplit_spaces(set->proxy_self, " ");
-	for (; *tmp != NULL; tmp++) {
-		ret = net_gethostbyname(*tmp, &ips, &ips_count);
-		if (ret != 0) {
-			*error_r = t_strdup_printf("auth_proxy_self_ips: "
-				"gethostbyname(%s) failed: %s",
-				*tmp, net_gethosterror(ret));
-		}
-		array_append(&ips_array, ips, ips_count);
-	}
-	array_append_zero(&ips_array);
-	set->proxy_self_ips = array_front(&ips_array);
-	return TRUE;
-}
-
 static bool
 auth_verify_verbose_password(struct auth_settings *set,
 			     const char **error_r)
@@ -650,8 +617,6 @@ static bool auth_settings_ext_check(struct event *event, void *_set,
 		}
 	}
 
-	if (!auth_settings_set_self_ips(set, pool, error_r))
-		return FALSE;
 	if (!auth_settings_get_passdbs(set, pool, event, error_r))
 		return FALSE;
 	if (!auth_settings_get_userdbs(set, pool, event, error_r))
