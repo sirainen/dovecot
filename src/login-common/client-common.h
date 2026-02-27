@@ -215,6 +215,7 @@ struct client {
 	struct timeout *to_auth_waiting;
 	struct timeout *to_notify_auth_ready;
 	struct timeout *to_disconnect;
+	struct dns_lookup *dns_lookup;
 
 	unsigned char *master_data_prefix;
 	unsigned int master_data_prefix_len;
@@ -309,6 +310,8 @@ struct client {
 	bool auth_login_limit_reached:1;
 	bool auth_initializing:1;
 	bool auth_process_comm_fail:1;
+	bool auth_proxy_reply_success:1;
+	bool auth_proxy_reply_reauth:1;
 	bool auth_anonymous:1;
 	bool auth_nologin_referral:1;
 	bool proxy_failed:1;

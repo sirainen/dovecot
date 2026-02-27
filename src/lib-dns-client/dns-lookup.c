@@ -470,7 +470,10 @@ int dns_client_init(const struct dns_client_parameters *params,
 	client->idle_timeout_msecs = params == NULL ? 0 : params->idle_timeout_msecs;
 	client->clist = connection_list_init(&dns_client_set, &dns_client_vfuncs);
 	client->ioloop = current_ioloop;
-	client->path = i_strdup(set->dns_client_socket_path);
+	if (params != NULL && params->socket_path != NULL)
+		client->path = i_strdup(params->socket_path);
+	else
+		client->path = i_strdup(set->dns_client_socket_path);
 	client->conn.event_parent = event_parent;
 	connection_init_client_unix(client->clist, &client->conn, client->path);
 	event_add_category(client->conn.event, &event_category_dns);
