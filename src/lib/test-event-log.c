@@ -64,7 +64,7 @@ test_event_log_message_cb(char *prefix,
 static int temp_log_file_init(void)
 {
 	temp_log_file = i_strconcat(test_dir_get_prefix(), "event.log", NULL);
-	int log_fd = open(temp_log_file, O_CREAT | O_TRUNC | O_RDWR, 0600);
+	int log_fd = open(temp_log_file, O_CREAT | O_TRUNC | O_RDWR | O_NOFOLLOW, 0600);
 	if (log_fd == -1)
 		i_fatal("open(%s) failed: %m", temp_log_file);
 	i_set_failure_file(temp_log_file, "");

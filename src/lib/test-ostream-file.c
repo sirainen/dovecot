@@ -76,18 +76,18 @@ static void test_ostream_file_send_istream_file(void)
 
 	/* temp file istream */
 	ipath = test_dir_prepend(".temp1.istream");
-	fd = open(ipath, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	fd = open(ipath, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
-		i_fatal("creat(%s) failed: %m", ipath);
+		i_fatal("open(%s, O_CREAT) failed: %m", ipath);
 	test_assert(write(fd, "1234567890", 10) == 10);
 	test_assert(lseek(fd, 0, SEEK_SET) == 0);
 	input = i_stream_create_fd_autoclose(&fd, 1024);
 
 	/* temp file ostream */
 	opath = test_dir_prepend(".temp1.ostream");
-	fd = open(opath, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	fd = open(opath, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
-		i_fatal("creat(%s) failed: %m", opath);
+		i_fatal("open(%s, O_CREAT) failed: %m", opath);
 	output = o_stream_create_fd(fd, 0);
 
 	/* test that writing works between two files */
@@ -145,9 +145,9 @@ static void test_ostream_file_send_istream_sendfile(void)
 
 	/* temp file istream */
 	path = test_dir_prepend(".temp2.istream");
-	fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	fd = open(path, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
-		i_fatal("creat(%s) failed: %m", path);
+		i_fatal("open(%s, O_CREAT) failed: %m", path);
 	test_assert(write(fd, "abcdefghij", 10) == 10);
 	test_assert(lseek(fd, 0, SEEK_SET) == 0);
 	input = i_stream_create_fd_autoclose(&fd, 1024);
@@ -186,9 +186,9 @@ static void test_ostream_file_send_over_iov_max(void)
 	test_begin("ostream file send over IOV_MAX");
 
 	const char *path = test_dir_prepend(".temp3.istream");
-	int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	int fd = open(path, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
-		i_fatal("creat(%s) failed: %m", path);
+		i_fatal("open(%s, O_CREAT) failed: %m", path);
 	struct ostream *output = o_stream_create_fd(fd, 0);
 
 	struct const_iovec iov[IOV_MAX*3];

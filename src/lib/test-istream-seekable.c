@@ -19,9 +19,9 @@ static int fd_callback(const char **path_r, void *context ATTR_UNUSED)
 
 	i_free(fd_callback_path);
 	fd_callback_path = i_strconcat(test_dir_get(), "/istream_seekable", NULL);
-	fd = open(fd_callback_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	fd = open(fd_callback_path, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
-		i_error("creat(%s) failed: %m", fd_callback_path);
+		i_error("open(%s, O_CREAT) failed: %m", fd_callback_path);
 	else
 		i_unlink(fd_callback_path);
 	fd_callback_fd = fd;

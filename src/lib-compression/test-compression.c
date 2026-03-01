@@ -304,7 +304,7 @@ test_compression_handler(const struct compression_handler *handler,
 				   handler->name, autodetect ? "yes" : "no"));
 
 	/* write compressed data */
-	fd = open(path, O_TRUNC | O_CREAT | O_RDWR, 0600);
+	fd = open(path, O_TRUNC | O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
 	if (fd == -1)
 		i_fatal("creat(%s) failed: %m", path);
 	file_output = o_stream_create_fd_file(fd, 0, FALSE);
@@ -1049,7 +1049,7 @@ static void test_compress_file(const char *in_path, const char *out_path)
 	fd_in = open(in_path, O_RDONLY);
 	if (fd_in == -1)
 		i_fatal("open(%s) failed: %m", in_path);
-	fd_out = open(out_path, O_TRUNC | O_CREAT | O_RDWR, 0600);
+	fd_out = open(out_path, O_TRUNC | O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
 	if (fd_out == -1)
 		i_fatal("creat(%s) failed: %m", out_path);
 

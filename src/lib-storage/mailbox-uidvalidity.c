@@ -174,7 +174,7 @@ mailbox_uidvalidity_next_rescan(struct mailbox_list *list, const char *path)
 			tmp = t_strdup_printf("%s.%08x", path, cur_value);
 			/* the file is empty, don't bother with permissions */
 			old_mask = umask(0);
-			fd = open(tmp, O_RDWR | O_CREAT | O_EXCL, 0444);
+			fd = open(tmp, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0444);
 			umask(old_mask);
 			if (fd != -1 || errno != EEXIST)
 				break;
@@ -184,7 +184,7 @@ mailbox_uidvalidity_next_rescan(struct mailbox_list *list, const char *path)
 		}
 		if (fd == -1) {
 			e_error(mailbox_list_get_user(list)->event,
-				"creat(%s) failed: %m", tmp);
+				"open(%s, O_CREAT) failed: %m", tmp);
 			return cur_value;
 		}
 		i_close_fd(&fd);

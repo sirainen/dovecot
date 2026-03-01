@@ -216,7 +216,7 @@ static void test_iostream_temp_istream(const char *tmp_prefix)
 	test_begin("iostream_temp istream");
 
 	tmp_input_path = t_strconcat(tmp_prefix, ".istream", NULL);
-	fd = open(tmp_input_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	fd = open(tmp_input_path, O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 	if (fd == -1)
 		i_fatal("create(.temp.istream) failed: %m");
 	test_assert(write(fd, "foobar", 6) == 6);

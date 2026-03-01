@@ -179,4 +179,8 @@ int fdatasync(int);
 #  define PIPE_BUF (8 * _POSIX_PIPE_BUF) /* for HURD */
 #endif
 
+#ifndef O_NOFOLLOW
+#  define O_NOFOLLOW 0
+#endif
+
 #endif
