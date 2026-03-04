@@ -15,7 +15,7 @@
 #include "fts-build-mail.h"
 #include "fts-search-serialize.h"
 #include "fts-plugin.h"
-#include "fts-user.h"
+#include "fts-search-args.h"
 #include "fts-storage.h"
 #include "hash.h"
 #include "fts-user.h"
@@ -173,6 +173,14 @@ fts_mailbox_search_init(struct mailbox_transaction_context *t,
 	struct fts_mailbox_list *flist = FTS_LIST_CONTEXT_REQUIRE(t->box->list);
 	struct mail_search_context *ctx;
 	struct fts_search_context *fctx;
+
+	if (fbox->set->search && flist->backend != NULL &&
+	    (flist->backend->flags & FTS_BACKEND_FLAG_TOKENIZED_INPUT) != 0) {
+		/* Expand the search arguments now, so that virtual mailbox
+		   can already use the expanded arguments when it's building
+		   its own search results. */
+		(void)fts_search_args_expand(flist->backend, args);
+	}
 
 	ctx = fbox->module_ctx.super.search_init(t, args, sort_program,
 						 wanted_fields, wanted_headers);
