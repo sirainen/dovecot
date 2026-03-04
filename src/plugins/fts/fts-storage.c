@@ -178,7 +178,12 @@ fts_mailbox_search_init(struct mailbox_transaction_context *t,
 	    (flist->backend->flags & FTS_BACKEND_FLAG_TOKENIZED_INPUT) != 0) {
 		/* Expand the search arguments now, so that virtual mailbox
 		   can already use the expanded arguments when it's building
-		   its own search results. */
+		   its own search results. This is important because virtual
+		   mailboxes build their record set during their init phase.
+		   If expansion happens later, the argument tree structure
+		   changes, and if virtual records were built with different
+		   arguments, they might not be found later during the search
+		   update phase, leading to crashes or inconsistent results. */
 		(void)fts_search_args_expand(flist->backend, args);
 	}
 
