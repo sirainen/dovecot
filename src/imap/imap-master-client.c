@@ -308,7 +308,7 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 	struct auth_client *auth_client;
 	struct auth_request_info info;
 	struct imap_master_auth_result result;
-	struct ioloop *ioloop, *prev_ioloop;
+	struct ioloop *ioloop;
 	const struct master_service_settings *master_set;
 	const char *auth_path;
 	string_t *token_payload;
@@ -321,9 +321,7 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 	master_set = master_service_get_service_settings(master_service);
 	auth_path = t_strconcat(master_set->base_dir, "/auth-client", NULL);
 
-	prev_ioloop = current_ioloop;
 	ioloop = io_loop_create();
-	io_loop_set_current(ioloop);
 
 	i_zero(&result);
 	result.ioloop = ioloop;
@@ -338,7 +336,6 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 
 	if (!result.connected) {
 		auth_client_deinit(&auth_client);
-		io_loop_set_current(prev_ioloop);
 		io_loop_destroy(&ioloop);
 		*error_r = "Failed to connect to auth service";
 		return -1;
@@ -373,7 +370,6 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 		io_loop_run(ioloop);
 
 	auth_client_deinit(&auth_client);
-	io_loop_set_current(prev_ioloop);
 	io_loop_destroy(&ioloop);
 
 	if (!result.success) {
