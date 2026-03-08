@@ -274,18 +274,13 @@ struct imap_master_auth_result {
 	bool success;
 };
 
-static void stop_io_loop(struct ioloop *ioloop)
-{
-	io_loop_stop(ioloop);
-}
-
 static void imap_master_auth_connected(struct auth_client *client ATTR_UNUSED,
 				       bool connected, void *context)
 {
 	struct imap_master_auth_result *result = context;
 
 	result->connected = connected;
-	timeout_add_short(0, stop_io_loop, result->ioloop);
+	io_loop_stop(result->ioloop);
 }
 
 static void imap_master_auth_callback(struct auth_client_request *request ATTR_UNUSED,
@@ -297,7 +292,7 @@ static void imap_master_auth_callback(struct auth_client_request *request ATTR_U
 	struct imap_master_auth_result *result = context;
 
 	result->success = (status == AUTH_REQUEST_STATUS_OK);
-	timeout_add_short(0, stop_io_loop, result->ioloop);
+	io_loop_stop(result->ioloop);
 }
 
 static int
@@ -319,7 +314,7 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 	}
 
 	master_set = master_service_get_service_settings(master_service);
-	auth_path = t_strconcat(master_set->base_dir, "/auth-client", NULL);
+	auth_path = t_strconcat(master_set->base_dir, "/token-login/tokenlogin", NULL);
 
 	ioloop = io_loop_create();
 
