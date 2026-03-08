@@ -269,8 +269,24 @@ imap_master_client_parse_input(const char *const *args, pool_t pool,
 }
 
 struct imap_master_auth_result {
+	struct ioloop *ioloop;
+	bool connected;
 	bool success;
 };
+
+static void stop_io_loop(struct ioloop *ioloop)
+{
+	io_loop_stop(ioloop);
+}
+
+static void imap_master_auth_connected(struct auth_client *client ATTR_UNUSED,
+				       bool connected, void *context)
+{
+	struct imap_master_auth_result *result = context;
+
+	result->connected = connected;
+	timeout_add_short(0, stop_io_loop, result->ioloop);
+}
 
 static void imap_master_auth_callback(struct auth_client_request *request ATTR_UNUSED,
 				      enum auth_request_status status,
@@ -281,7 +297,7 @@ static void imap_master_auth_callback(struct auth_client_request *request ATTR_U
 	struct imap_master_auth_result *result = context;
 
 	result->success = (status == AUTH_REQUEST_STATUS_OK);
-	io_loop_stop(current_ioloop);
+	timeout_add_short(0, stop_io_loop, result->ioloop);
 }
 
 static int
@@ -303,11 +319,30 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 	}
 
 	master_set = master_service_get_service_settings(master_service);
-	auth_path = t_strconcat(master_set->base_dir, "/auth-login", NULL);
+	auth_path = t_strconcat(master_set->base_dir, "/auth-client", NULL);
 
 	prev_ioloop = current_ioloop;
 	ioloop = io_loop_create();
+	io_loop_set_current(ioloop);
+
+	i_zero(&result);
+	result.ioloop = ioloop;
+
 	auth_client = auth_client_init(auth_path, getpid(), imap_debug);
+
+	auth_client_set_connect_notify(auth_client, imap_master_auth_connected,
+				       &result);
+	auth_client_connect(auth_client);
+	if (!auth_client_is_disconnected(auth_client))
+		io_loop_run(ioloop);
+
+	if (!result.connected) {
+		auth_client_deinit(&auth_client);
+		io_loop_set_current(prev_ioloop);
+		io_loop_destroy(&ioloop);
+		*error_r = "Failed to connect to auth service";
+		return -1;
+	}
 
 	i_zero(&info);
 	info.mech = "DOVECOT-TOKEN";
@@ -332,14 +367,14 @@ imap_master_client_authenticate(const char *username, const char *session_id,
 		      initial_resp_b64);
 	info.initial_resp_base64 = str_c(initial_resp_b64);
 
-	i_zero(&result);
+	result.success = FALSE;
 	if (auth_client_request_new(auth_client, &info,
 				    imap_master_auth_callback, &result) != NULL)
 		io_loop_run(ioloop);
 
 	auth_client_deinit(&auth_client);
-	io_loop_destroy(&ioloop);
 	io_loop_set_current(prev_ioloop);
+	io_loop_destroy(&ioloop);
 
 	if (!result.success) {
 		*error_r = "DOVECOT-TOKEN authentication failed";
