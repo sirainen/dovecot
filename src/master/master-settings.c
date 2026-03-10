@@ -774,6 +774,22 @@ master_settings_ext_check(struct event *event, void *_set,
 			return FALSE;
 		}
 
+		if (array_is_created(&service->parsed_inet_listeners)) {
+			struct inet_listener_settings *const *inet_listeners;
+			unsigned int inet_count;
+
+			inet_listeners = array_get(&service->parsed_inet_listeners, &inet_count);
+			for (j = 0; j < inet_count; j++) {
+				if (inet_listeners[j]->reuse_port &&
+				    service->process_min_avail != service->process_limit) {
+					*error_r = t_strdup_printf("service(%s): "
+						"process_min_avail must be equal to process_limit "
+						"when using reuse_port=yes", service->name);
+					return FALSE;
+				}
+			}
+		}
+
 #ifdef CONFIG_BINARY
 		default_service =
 			master_default_settings_get_service(service->name);

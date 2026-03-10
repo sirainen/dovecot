@@ -41,6 +41,7 @@ struct service_listener {
 	} set;
 
 	bool reuse_port;
+	unsigned int reuse_port_index;
 };
 
 struct service {

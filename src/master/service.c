@@ -156,9 +156,14 @@ service_create_inet_listeners(struct service *service,
 			return -1;
 
 		for (i = 0; i < ips_count; i++) {
-			l = service_create_one_inet_listener(service, set,
-							     address, &ips[i]);
-			array_push_back(&service->listeners, &l);
+			unsigned int j, count = set->reuse_port ? service->process_limit : 1;
+			for (j = 0; j < count; j++) {
+				l = service_create_one_inet_listener(service, set,
+								     address, &ips[i]);
+				l->reuse_port = set->reuse_port;
+				l->reuse_port_index = j;
+				array_push_back(&service->listeners, &l);
+			}
 		}
 		service->have_inet_listeners = TRUE;
 	}
