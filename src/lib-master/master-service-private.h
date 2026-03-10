@@ -16,6 +16,7 @@ struct master_service_listener {
 	/* settings */
 	bool ssl;
 	bool haproxy;
+	bool reuse_port;
 
 	/* state */
 	bool closed;

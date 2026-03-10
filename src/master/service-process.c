@@ -113,6 +113,8 @@ service_dup_fds(struct service *service, unsigned int process_index,
 					str_append(listener_settings, "\tssl");
 				if (listeners[i]->set.inetset.set->haproxy)
 					str_append(listener_settings, "\thaproxy");
+				if (listeners[i]->reuse_port)
+					str_append(listener_settings, "\treuse_port");
 				if (*listeners[i]->set.inetset.set->type != '\0') {
 					str_append(listener_settings, "\ttype=");
 					str_append_tabescaped(
@@ -389,10 +391,14 @@ service_process_create(struct service *service, int accepted_fd,
 	if (service->process_limit > 0) {
 		bool *indices = t_new(bool, service->process_limit);
 		struct service_process *p;
-		for (p = service->busy_processes; p != NULL; p = p->next)
-			indices[p->index] = TRUE;
-		for (p = service->idle_processes_head; p != NULL; p = p->next)
-			indices[p->index] = TRUE;
+		for (p = service->busy_processes; p != NULL; p = p->next) {
+			if (p->index < service->process_limit)
+				indices[p->index] = TRUE;
+		}
+		for (p = service->idle_processes_head; p != NULL; p = p->next) {
+			if (p->index < service->process_limit)
+				indices[p->index] = TRUE;
+		}
 		for (process_index = 0; process_index < service->process_limit; process_index++) {
 			if (!indices[process_index])
 				break;

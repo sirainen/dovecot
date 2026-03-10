@@ -501,7 +501,7 @@ static void service_monitor_listen_start_force(struct service *service)
 	timeout_remove(&service->to_drop_warning);
 
 	array_foreach_elem(&service->listeners, l) {
-		if (l->io == NULL && l->fd != -1)
+		if (l->io == NULL && l->fd != -1 && !l->reuse_port)
 			l->io = io_add(l->fd, IO_READ, service_accept, l);
 	}
 }

@@ -433,6 +433,8 @@ static void master_service_init_socket_listeners(struct master_service *service)
 					have_ssl_sockets = TRUE;
 				} else if (strcmp(sname, "haproxy") == 0) {
 					l->haproxy = TRUE;
+				} else if (strcmp(sname, "reuse_port") == 0) {
+					l->reuse_port = TRUE;
 				} else if (strcmp(sname, "type") == 0) {
 					i_free(l->type);
 					l->type = i_strdup_empty(svalue);
@@ -1881,6 +1883,15 @@ static void master_service_listen(struct master_service_listener *l)
 
 	if (service->master_status.available_count == 0 && !master_admin_conn) {
 		if (master_service_full(service)) {
+			if (l->reuse_port) {
+				/* With reuse_port the master can't drop
+				   the connections for us. We must do it
+				   ourselves. */
+				int fd = net_accept(l->fd, NULL, NULL);
+				if (fd != -1)
+					i_close_fd(&fd);
+				return;
+			}
 			/* Stop the listener until a client has disconnected or
 			   overflow callback has killed one. */
 			master_service_io_listeners_remove(service);
@@ -1933,8 +1944,11 @@ void master_service_io_listeners_remove(struct master_service *service)
 	unsigned int i;
 
 	for (i = 0; i < service->socket_count; i++) {
-		if (!master_admin_client_can_accept(service->listeners[i].name))
-			io_remove(&service->listeners[i].io);
+		if (master_admin_client_can_accept(service->listeners[i].name))
+			continue;
+		if (service->listeners[i].reuse_port && !service->stopping)
+			continue;
+		io_remove(&service->listeners[i].io);
 	}
 }
 
