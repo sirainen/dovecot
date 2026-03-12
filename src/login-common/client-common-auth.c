@@ -16,6 +16,7 @@
 #include "dsasl-client.h"
 #include "ssl-settings.h"
 #include "client-common.h"
+#include "dns-lookup.h"
 
 /* If we've been waiting auth server to respond for over this many milliseconds,
    send a "waiting" message. */
@@ -61,6 +62,75 @@ client_auth_fail_code_lookup(const char *fail_code)
 	}
 
 	return CLIENT_AUTH_FAIL_CODE_NONE;
+}
+
+static int proxy_start(struct client *client,
+		       const struct client_auth_reply *reply);
+static void client_auth_failed(struct client *client);
+static bool client_auth_parse_args(const struct client *client, bool success,
+				   bool reauth, const char *const *args,
+				   struct client_auth_reply *reply_r,
+				   const char **username_r);
+static void ATTR_NULL(3, 4)
+client_auth_result(struct client *client, enum client_auth_result result,
+		   const struct client_auth_reply *reply, const char *text);
+
+static int login_dns_client_init(struct event *event, const char **error_r)
+{
+	if (login_dns_client != NULL)
+		return 0;
+
+	struct dns_client_parameters dns_params = {
+		.idle_timeout_msecs = 60 * 1000,
+		.socket_path = global_login_settings->dns_client_socket_path,
+	};
+	return dns_client_init(&dns_params, event, &login_dns_client, error_r);
+}
+
+static void client_dns_lookup_callback(const struct dns_lookup_result *result,
+				       struct client *client)
+{
+	struct client_auth_reply reply;
+	const char *username;
+
+	i_zero(&reply);
+	client->dns_lookup = NULL;
+	if (client->destroyed) {
+		client_unref(&client);
+		return;
+	}
+
+	if (result->ret != 0) {
+		e_error(client->event, "proxy: DNS lookup failed: %s",
+			result->error);
+		client_auth_failed(client);
+		client_unref(&client);
+		return;
+	}
+
+	T_BEGIN {
+		if (!client_auth_parse_args(client, client->auth_proxy_reply_success,
+					    client->auth_proxy_reply_reauth,
+					    client->auth_passdb_args,
+					    &reply, &username)) {
+			client_auth_failed(client);
+		} else {
+			reply.proxy.host_ip = result->ips[0];
+			if (client->auth_proxy_reply_reauth) {
+				login_proxy_redirect_finish(client->login_proxy,
+							    &reply.proxy.host_ip,
+							    reply.proxy.port);
+			} else {
+				if (proxy_start(client, &reply) < 0)
+					client_auth_failed(client);
+				else {
+					client_auth_result(client, CLIENT_AUTH_RESULT_SUCCESS,
+							   &reply, NULL);
+				}
+			}
+		}
+	} T_END;
+	client_unref(&client);
 }
 
 static void client_auth_failed(struct client *client)
@@ -240,13 +310,9 @@ static bool client_auth_parse_args(const struct client *client, bool success,
 			return FALSE;
 		}
 
-		if (reply_r->proxy.host_ip.family == 0 &&
-		    net_addr2ip(reply_r->proxy.host,
-				&reply_r->proxy.host_ip) < 0) {
-			e_error(client->event,
-				"proxy: host %s is not an IP (auth should have changed it)",
-				reply_r->proxy.host);
-			return FALSE;
+		if (reply_r->proxy.host_ip.family == 0) {
+			(void)net_addr2ip(reply_r->proxy.host,
+					  &reply_r->proxy.host_ip);
 		}
 	}
 	return TRUE;
@@ -415,6 +481,26 @@ proxy_redirect_reauth_callback(struct auth_client_request *request,
 		   way reauth can replace (all of) the forward_* fields. */
 		client->auth_passdb_args = p_strarray_dup(client->pool, args);
 		if (reply.proxy.proxy) {
+			if (reply.proxy.host_ip.family == 0) {
+				/* hostname needs to be resolved */
+				const char *error;
+				if (login_dns_client_init(client->event, &error) < 0) {
+					e_error(client->event, "proxy: DNS client init failed: %s",
+						error);
+					client_auth_failed(client);
+					return;
+				}
+				client->auth_proxy_reply_success = TRUE;
+				client->auth_proxy_reply_reauth = TRUE;
+				client_ref(client);
+				if (dns_client_lookup(login_dns_client, reply.proxy.host,
+						     client->event,
+						     client_dns_lookup_callback, client,
+						     &client->dns_lookup) < 0) {
+					/* failed to start lookup, callback already called */
+				}
+				return;
+			}
 			login_proxy_redirect_finish(client->login_proxy,
 						    &reply.proxy.host_ip,
 						    reply.proxy.port);
@@ -779,6 +865,29 @@ client_auth_handle_reply(struct client *client,
 		   proxy host=.. [port=..] [destuser=..] pass=.. */
 		if (!success)
 			return FALSE;
+
+		if (reply->proxy.host_ip.family == 0) {
+			/* hostname needs to be resolved */
+			const char *error;
+			if (login_dns_client_init(client->event, &error) < 0) {
+				e_error(client->event, "proxy: DNS client init failed: %s",
+					error);
+				client_auth_failed(client);
+				return TRUE;
+			}
+			client->auth_passdb_args = p_strarray_dup(client->pool, reply->all_fields);
+			client->auth_proxy_reply_success = success;
+			client->auth_proxy_reply_reauth = FALSE;
+			client_ref(client);
+			if (dns_client_lookup(login_dns_client, reply->proxy.host,
+					     client->event,
+					     client_dns_lookup_callback, client,
+					     &client->dns_lookup) < 0) {
+				/* failed to start lookup, callback already called */
+			}
+			return TRUE;
+		}
+
 		if (proxy_start(client, reply) < 0)
 			client_auth_failed(client);
 		else {

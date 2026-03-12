@@ -28,6 +28,7 @@ static const struct setting_define login_setting_defines[] = {
 	DEF(TIME, login_proxy_max_disconnect_delay),
 	DEF(STR, login_proxy_rawlog_dir),
 	DEF(STR_HIDDEN, login_socket_path),
+	DEF(STR, dns_client_socket_path),
 
 	DEF(BOOL, auth_ssl_require_client_cert),
 	DEF(BOOL, auth_ssl_username_from_cert),
@@ -62,6 +63,7 @@ static const struct login_settings login_default_settings = {
 #endif
 	.login_proxy_rawlog_dir = "",
 	.login_socket_path = "",
+	.dns_client_socket_path = "login/dns-client",
 
 	.auth_ssl_require_client_cert = FALSE,
 	.auth_ssl_username_from_cert = FALSE,

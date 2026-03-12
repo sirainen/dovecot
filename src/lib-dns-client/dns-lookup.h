@@ -26,6 +26,9 @@ struct dns_client_parameters {
 	/* Non-zero enables caching for the client, is not supported with
 	   dns_lookup() or dns_lookup_ptr(). Note that DNS TTL is ignored. */
 	unsigned int cache_ttl_secs;
+
+	/* If non-NULL, use this socket path instead of the default. */
+	const char *socket_path;
 };
 
 struct dns_lookup_result {

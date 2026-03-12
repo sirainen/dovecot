@@ -30,6 +30,7 @@
 #include "login-proxy.h"
 #include "settings-parser.h"
 #include "client-common.h"
+#include "dns-lookup.h"
 
 struct client *clients = NULL;
 struct client *destroyed_clients = NULL;
@@ -542,6 +543,7 @@ void client_destroy(struct client *client, const char *reason)
 	timeout_remove(&client->to_disconnect);
 	timeout_remove(&client->to_auth_waiting);
 	timeout_remove(&client->to_notify_auth_ready);
+	dns_lookup_abort(&client->dns_lookup);
 	str_free(&client->auth_response);
 	i_free(client->auth_conn_cookie);
 

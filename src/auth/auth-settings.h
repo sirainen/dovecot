@@ -68,7 +68,6 @@ struct auth_settings {
 	const char *krb5_keytab;
 	const char *gssapi_hostname;
 	const char *winbind_helper_path;
-	const char *proxy_self;
 	unsigned int failure_delay;
 	unsigned int internal_failure_delay;
 
@@ -107,7 +106,6 @@ struct auth_settings {
 	ARRAY(const struct auth_userdb_settings *) parsed_userdbs;
 	char username_chars_map[256];
 	char username_translation_map[256];
-	const struct ip_addr *proxy_self_ips;
 };
 
 struct auth_policy_request_settings {

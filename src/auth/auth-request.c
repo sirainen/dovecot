@@ -2283,45 +2283,9 @@ void auth_request_set_userdb_strlist(struct auth_request *request,
 	}
 }
 
-static bool auth_request_proxy_is_self(struct auth_request *request)
-{
-	const char *port = NULL;
-
-	/* check if the port is the same */
-	port = auth_fields_find(request->fields.extra_fields, "port");
-	if (port != NULL && !str_uint_equals(port, request->fields.local_port))
-		return FALSE;
-	/* don't check destuser. in some systems destuser is intentionally
-	   changed to proxied connections, but that shouldn't affect the
-	   proxying decision.
-
-	   it's unlikely any systems would actually want to proxy a connection
-	   to itself only to change the username, since it can already be done
-	   without proxying by changing the "user" field. */
-	return TRUE;
-}
-
-static bool
-auth_request_proxy_ip_is_self(struct auth_request *request,
-			      const struct ip_addr *ip)
-{
-	unsigned int i;
-
-	if (net_ip_compare(ip, &request->fields.real_local_ip))
-		return TRUE;
-
-	for (i = 0; request->set->proxy_self_ips[i].family != 0; i++) {
-		if (net_ip_compare(ip, &request->set->proxy_self_ips[i]))
-			return TRUE;
-	}
-	return FALSE;
-}
-
 static void
-auth_request_proxy_finish_ip(struct auth_request *request,
-			     bool proxy_host_is_self)
+auth_request_proxy_finish_ip(struct auth_request *request)
 {
-	const struct auth_request_fields *fields = &request->fields;
 	const char *host = auth_fields_find(request->fields.extra_fields, "host");
 	const char *hostip = auth_fields_find(request->fields.extra_fields, "hostip");
 	struct ip_addr ip1, ip2;
@@ -2340,17 +2304,6 @@ auth_request_proxy_finish_ip(struct auth_request *request,
 			return;
 		}
 	}
-
-	if (!auth_fields_exists(fields->extra_fields, "proxy_maybe")) {
-		/* proxying */
-	} else if (!proxy_host_is_self ||
-		   !auth_request_proxy_is_self(request)) {
-		/* proxy destination isn't ourself - proxy */
-		auth_fields_remove(fields->extra_fields, "proxy_maybe");
-		auth_fields_add(fields->extra_fields, "proxy", NULL, 0);
-	} else {
-		auth_request_proxy_finish_failure(request);
-	}
 }
 
 static void
@@ -2362,8 +2315,6 @@ auth_request_proxy_dns_callback(const struct dns_lookup_result *result,
 		return;
 	struct auth_request *request = ctx->request;
 	const char *host;
-	unsigned int i;
-	bool proxy_host_is_self;
 
 	request->dns_lookup_ctx = NULL;
 	ctx->dns_lookup = NULL;
@@ -2385,15 +2336,7 @@ auth_request_proxy_dns_callback(const struct dns_lookup_result *result,
 		}
 		auth_fields_add(request->fields.extra_fields, "hostip",
 				net_ip2addr(&result->ips[0]), 0);
-		proxy_host_is_self = FALSE;
-		for (i = 0; i < result->ips_count; i++) {
-			if (auth_request_proxy_ip_is_self(request,
-							  &result->ips[i])) {
-				proxy_host_is_self = TRUE;
-				break;
-			}
-		}
-		auth_request_proxy_finish_ip(request, proxy_host_is_self);
+		auth_request_proxy_finish_ip(request);
 	}
 	bool res = result->ret == 0 && !request->internal_failure;
 	if (ctx->callback != NULL)
@@ -2446,19 +2389,16 @@ int auth_request_proxy_finish(struct auth_request *request,
 {
 	const char *host, *hostip;
 	struct ip_addr ip;
-	bool proxy_host_is_self;
 
 	if (request->auth_only)
 		return 1;
-	if (!auth_fields_exists(request->fields.extra_fields, "proxy") &&
-	    !auth_fields_exists(request->fields.extra_fields, "proxy_maybe"))
+	if (!auth_fields_exists(request->fields.extra_fields, "proxy"))
 		return 1;
 
 	host = auth_fields_find(request->fields.extra_fields, "host");
 	if (host == NULL) {
 		/* director can set the host. give it access to lip and lport
 		   so it can also perform proxy_maybe internally */
-		proxy_host_is_self = FALSE;
 		if (request->fields.local_ip.family != 0) {
 			auth_fields_add(request->fields.extra_fields, "lip",
 				net_ip2addr(&request->fields.local_ip), 0);
@@ -2468,8 +2408,7 @@ int auth_request_proxy_finish(struct auth_request *request,
 				dec2str(request->fields.local_port), 0);
 		}
 	} else if (net_addr2ip(host, &ip) == 0) {
-		proxy_host_is_self =
-			auth_request_proxy_ip_is_self(request, &ip);
+		/* host is an IP */
 	} else {
 		hostip = auth_fields_find(request->fields.extra_fields,
 					  "hostip");
@@ -2483,11 +2422,9 @@ int auth_request_proxy_finish(struct auth_request *request,
 			return auth_request_proxy_host_lookup(request, host,
 							      callback);
 		}
-		proxy_host_is_self =
-			auth_request_proxy_ip_is_self(request, &ip);
 	}
 
-	auth_request_proxy_finish_ip(request, proxy_host_is_self);
+	auth_request_proxy_finish_ip(request);
 	if (request->internal_failure)
 		return -1;
 	return 1;
@@ -2497,7 +2434,6 @@ void auth_request_proxy_finish_failure(struct auth_request *request)
 {
 	/* drop all proxying fields */
 	auth_fields_remove(request->fields.extra_fields, "proxy");
-	auth_fields_remove(request->fields.extra_fields, "proxy_maybe");
 	auth_fields_remove(request->fields.extra_fields, "host");
 	auth_fields_remove(request->fields.extra_fields, "hostip");
 	auth_fields_remove(request->fields.extra_fields, "port");
