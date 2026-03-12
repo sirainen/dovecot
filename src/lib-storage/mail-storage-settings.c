@@ -869,13 +869,13 @@ namespace_parse_mailboxes(struct event *event, pool_t pool,
 			*error_r = t_strdup_printf(
 				"Failed to get mailbox %s: %s",
 				box_name, error);
+			settings_free(box_set);
 			ret = -1;
 			break;
 		}
 		array_push_back(&ns->parsed_mailboxes, &box_set);
 		pool_add_external_ref(pool, box_set->pool);
 		bool have_special_use = array_not_empty(&box_set->special_use);
-		settings_free(box_set);
 		if (have_special_use)
 			ns->parsed_have_special_use_mailboxes = TRUE;
 	}
