@@ -41,6 +41,7 @@ struct service_process {
 	struct timeout *to_status;
 
 	bool destroyed:1;
+	bool retired:1;
 };
 
 #define SERVICE_PROCESS_IS_INITIALIZED(process) \

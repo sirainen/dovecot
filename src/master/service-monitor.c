@@ -107,6 +107,8 @@ static void service_status_more(struct service_process *process,
 				const struct master_status *status)
 {
 	struct service *service = process->service;
+	unsigned int status_avail_count =
+		(status->available_count == UINT_MAX ? 0 : status->available_count);
 
 	if (process->idle_start != 0) {
 		/* idling process became busy */
@@ -123,9 +125,9 @@ static void service_status_more(struct service_process *process,
 			      service->process_idling);
 	}
 	process->total_count +=
-		process->available_count - status->available_count;
+		process->available_count - status_avail_count;
 
-	if (status->available_count != 0)
+	if (status_avail_count != 0)
 		return;
 
 	/* process used up all of its clients */
@@ -176,14 +178,19 @@ static void service_check_idle(struct service_process *process)
 	}
 }
 
-static void service_status_less(struct service_process *process)
+static void service_status_less(struct service_process *process,
+				const struct master_status *status)
 {
 	struct service *service = process->service;
+	unsigned int process_avail_count =
+		(process->available_count == UINT_MAX ? 0 : process->available_count);
+	unsigned int status_avail_count =
+		(status->available_count == UINT_MAX ? 0 : status->available_count);
 
 	/* some process got more connections - remove the delayed warning */
 	timeout_remove(&service->to_drop_warning);
 
-	if (process->available_count == 0) {
+	if (process_avail_count == 0 && status_avail_count > 0) {
 		/* process can accept more clients again */
 		if (service->process_avail++ == 0)
 			service_monitor_listen_stop(service);
@@ -226,15 +233,38 @@ service_status_input_one(struct service *service,
 	/* first status notification */
 	timeout_remove(&process->to_status);
 
+	unsigned int process_avail_count =
+		(process->available_count == UINT_MAX ? 0 : process->available_count);
+	unsigned int status_avail_count =
+		(status->available_count == UINT_MAX ? 0 : status->available_count);
+
 	if (process->available_count != status->available_count) {
-		if (process->available_count > status->available_count) {
+		if (status->available_count == UINT_MAX) {
+			if (!process->retired) {
+				process->retired = TRUE;
+				i_assert(service->process_count > 0);
+				service->process_count--;
+			}
+		} else if (process->available_count == UINT_MAX) {
+			process->retired = FALSE;
+			service->process_count++;
+		}
+
+		if (process_avail_count > status_avail_count) {
 			/* process started servicing some more clients */
 			service_status_more(process, status);
 		} else {
 			/* process finished servicing some clients */
-			service_status_less(process);
+			service_status_less(process, status);
 		}
 		process->available_count = status->available_count;
+
+		if (process->available_count == UINT_MAX) {
+			if (service->type == SERVICE_TYPE_LOGIN)
+				service_login_notify(service, FALSE);
+			service_monitor_start_extra_avail(service);
+			service_monitor_listen_start(service);
+		}
 	}
 	service_check_idle(process);
 }
