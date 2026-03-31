@@ -819,14 +819,14 @@ void http_client_request_get_stats(struct http_client_request *req,
 		stats_r->last_sent_msecs = (unsigned int)I_MAX(diff_msecs, 0);
 	}
 
-	if (req->conn != NULL) {
-		/* Time spent in other ioloops */
-		i_assert(ioloop_global_wait_usecs >=
-			 req->sent_global_ioloop_usecs);
-		stats_r->other_ioloop_msecs = (unsigned int)
-			(ioloop_global_wait_usecs -
-				req->sent_global_ioloop_usecs + 999) / 1000;
+	/* Time spent in other ioloops */
+	i_assert(ioloop_global_wait_usecs >=
+		 req->queued_global_ioloop_usecs);
+	stats_r->other_ioloop_msecs = (unsigned int)
+		(ioloop_global_wait_usecs -
+			req->queued_global_ioloop_usecs + 999) / 1000;
 
+	if (req->conn != NULL) {
 		/* Time spent in the http-client's own ioloop */
 		if (client != NULL && client->waiting) {
 			wait_usecs =
@@ -844,9 +844,9 @@ void http_client_request_get_stats(struct http_client_request *req,
 
 	/* Total time spent on waiting for file locks */
 	wait_usecs = file_lock_wait_get_total_usecs();
-	i_assert(wait_usecs >= req->sent_lock_usecs);
+	i_assert(wait_usecs >= req->queued_lock_usecs);
 	stats_r->lock_msecs = (unsigned int)
-		(wait_usecs - req->sent_lock_usecs + 999) / 1000;
+		(wait_usecs - req->queued_lock_usecs + 999) / 1000;
 
 	/* Number of attempts for this request */
 	stats_r->attempts = req->attempts;
@@ -1025,6 +1025,8 @@ void http_client_request_submit(struct http_client_request *req)
 	i_assert(req->client != NULL);
 
 	req->submit_time = ioloop_timeval;
+	req->queued_lock_usecs = file_lock_wait_get_total_usecs();
+	req->queued_global_ioloop_usecs = ioloop_global_wait_usecs;
 
 	http_client_request_update_event(req);
 	http_client_request_do_submit(req);
@@ -1509,8 +1511,6 @@ http_client_request_send_real(struct http_client_request *req, bool pipelined)
 	if (req->first_sent_time.tv_sec == 0)
 		req->first_sent_time = ioloop_timeval;
 	req->sent_time = ioloop_timeval;
-	req->sent_lock_usecs = file_lock_wait_get_total_usecs();
-	req->sent_global_ioloop_usecs = ioloop_global_wait_usecs;
 	req->sent_http_ioloop_usecs =
 		io_wait_timer_get_usecs(req->conn->io_wait_timer);
 

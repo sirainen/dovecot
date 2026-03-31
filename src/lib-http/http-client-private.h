@@ -129,9 +129,9 @@ struct http_client_request {
 
 	unsigned int attempts, send_attempts;
 	unsigned int redirects;
-	uint64_t sent_global_ioloop_usecs;
+	uint64_t queued_global_ioloop_usecs;
 	uint64_t sent_http_ioloop_usecs;
-	uint64_t sent_lock_usecs;
+	uint64_t queued_lock_usecs;
 
 	unsigned int delayed_error_status;
 	const char *delayed_error;
