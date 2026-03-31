@@ -226,6 +226,9 @@ struct http_client_request_stats {
 	/* Number of times the client attempted to actually send the request
 	   to a server */
 	unsigned int send_attempts;
+
+	uoff_t payload_bytes_out, payload_size;
+	bool payload_chunked;
 };
 
 typedef void

@@ -100,7 +100,7 @@ struct http_client_request {
 	time_t date;
 
 	struct istream *payload_input;
-	uoff_t payload_size, payload_offset;
+	uoff_t payload_size, payload_offset, payload_bytes_out;
 	struct ostream *payload_output;
 
 	/* Time when request can be sent the next time. This is set by

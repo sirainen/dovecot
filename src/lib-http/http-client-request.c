@@ -852,6 +852,12 @@ void http_client_request_get_stats(struct http_client_request *req,
 	stats_r->attempts = req->attempts;
 	/* Number of send attempts for this request */
 	stats_r->send_attempts = req->send_attempts;
+
+	if (req->payload_input != NULL)
+		req->payload_bytes_out = req->payload_input->v_offset - req->payload_offset;
+	stats_r->payload_bytes_out = req->payload_bytes_out;
+	stats_r->payload_size = req->payload_size;
+	stats_r->payload_chunked = req->payload_chunked;
 }
 
 void http_client_request_append_stats_text(struct http_client_request *req,
@@ -892,6 +898,14 @@ void http_client_request_append_stats_text(struct http_client_request *req,
 	str_printfa(str, ", %u.%03u in other ioloops",
 		    stats.other_ioloop_msecs/1000,
 		    stats.other_ioloop_msecs%1000);
+
+	if (stats.payload_chunked) {
+		str_printfa(str, ", payload sent: %"PRIuUOFF_T,
+			    stats.payload_bytes_out);
+	} else if (stats.payload_size > 0 || stats.payload_bytes_out > 0) {
+		str_printfa(str, ", payload sent: %"PRIuUOFF_T"/%"PRIuUOFF_T,
+			    stats.payload_bytes_out, stats.payload_size);
+	}
 
 	if (stats.lock_msecs > 0) {
 		str_printfa(str, ", %u.%03u in locks",
@@ -1319,6 +1333,7 @@ int http_client_request_send_more(struct http_client_request *req,
 	o_stream_set_max_buffer_size(output, SIZE_MAX);
 
 	i_assert(req->payload_input->v_offset >= offset);
+	req->payload_bytes_out = req->payload_input->v_offset - req->payload_offset;
 	e_debug(req->event, "Send more (sent %"PRIuUOFF_T", buffered=%zu)",
 		(uoff_t)(req->payload_input->v_offset - offset),
 		o_stream_get_buffer_used_size(output));
@@ -1899,6 +1914,7 @@ http_client_request_reset(struct http_client_request *req, bool rewind,
 
 	/* Reset payload state */
 	req->payload_finished = FALSE;
+	req->payload_bytes_out = 0;
 
 	return 0;
 }
