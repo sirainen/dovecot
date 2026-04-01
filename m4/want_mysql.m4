@@ -24,7 +24,7 @@ AC_DEFUN([DOVECOT_WANT_MYSQL], [
         AC_MSG_NOTICE([building MySQL support with MariaDB])
 
         have_mysql=yes
-        mysql_driver="libmariadb"
+        mysql_driver="mariadb"
         MYSQL_LIBS="$MARIADB_LIBS"
         MYSQL_CFLAGS="$MARIADB_CFLAGS"
       ])
@@ -58,6 +58,7 @@ AC_DEFUN([DOVECOT_WANT_MYSQL], [
 
         AC_CHECK_LIB(mysqlclient, mysql_init, [
           have_mysql=yes
+          mysql_driver="mysqlclient"
 
           MYSQL_CFLAGS="$MYSQL_CFLAGS $MYSQL_INCLUDE"
         ],, $MYSQL_LIBS)
