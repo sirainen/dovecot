@@ -132,7 +132,8 @@ static void service_status_more(struct service_process *process,
 
 	if (service->type == SERVICE_TYPE_LOGIN &&
 	    service->process_avail == 0 &&
-	    service_active_process_count(service) >= service->process_limit)
+	    (service_active_process_count(service) >= service->process_active_limit ||
+	     service->process_count >= service->process_limit))
 		service_login_notify(service, TRUE);
 
 	if (service->set->reuse_port &&
@@ -299,7 +300,10 @@ static void service_log_drop_warning(struct service *service)
 	if (service->last_drop_warning +
 	    SERVICE_DROP_WARN_INTERVAL_SECS <= ioloop_time) {
 		service->last_drop_warning = ioloop_time;
-		if (service->process_limit > 1) {
+		if (service_active_process_count(service) >= service->process_active_limit) {
+			limit_name = "process_active_limit";
+			limit = service->process_active_limit;
+		} else if (service->process_limit > 1) {
 			limit_name = "process_limit";
 			limit = service->process_limit;
 		} else if (service->set->restart_request_count == 1) {
@@ -407,7 +411,8 @@ static void service_accept(struct service_listener *l)
 
 	i_assert(service->process_avail == 0);
 
-	if (service_active_process_count(service) >= service->process_limit) {
+	if (service_active_process_count(service) >= service->process_active_limit ||
+	    service->process_count >= service->process_limit) {
 		/* we've reached our limits, new clients will have to
 		   wait until there are more processes available */
 		service_drop_connections(l);
@@ -451,8 +456,10 @@ service_monitor_start_count(struct service *service, unsigned int limit)
 	unsigned int active_process_count =
 		service_active_process_count(service);
 	count = service->set->process_min_avail - service->process_avail;
-	if (active_process_count + count > service->process_limit)
-		count = service->process_limit - active_process_count;
+	if (active_process_count + count > service->process_active_limit)
+		count = service->process_active_limit - active_process_count;
+	if (service->process_count + count > service->process_limit)
+		count = service->process_limit - service->process_count;
 	if (count > limit)
 		count = limit;
 
@@ -493,7 +500,8 @@ static void service_monitor_prefork_timeout(struct service *service)
 static void service_monitor_start_extra_avail(struct service *service)
 {
 	if (service->process_avail >= service->set->process_min_avail ||
-	    service_active_process_count(service) >= service->process_limit ||
+	    service_active_process_count(service) >= service->process_active_limit ||
+	    service->process_count >= service->process_limit ||
 	    service->list->destroying)
 		return;
 
@@ -531,7 +539,8 @@ static void service_monitor_listen_start_force(struct service *service)
 void service_monitor_listen_start(struct service *service)
 {
 	if (service->process_avail > 0 || service->to_throttle != NULL ||
-	    (service_active_process_count(service) >= service->process_limit &&
+	    ((service_active_process_count(service) >= service->process_active_limit ||
+	      service->process_count >= service->process_limit) &&
 	     service->listen_pending))
 		return;
 

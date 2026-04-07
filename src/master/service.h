@@ -87,7 +87,9 @@ struct service {
 	/* Lowest number of processes that have been idling at the same time.
 	   This is reset to process_idling every idle_kill_interval seconds. */
 	unsigned int process_idling_lowwater_since_kills;
-	/* max number of processes allowed */
+	/* max number of active processes allowed */
+	unsigned int process_active_limit;
+	/* max number of total processes allowed */
 	unsigned int process_limit;
 	/* Total number of processes ever created */
 	uint64_t process_count_total;

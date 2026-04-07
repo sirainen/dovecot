@@ -54,6 +54,7 @@ struct master_service {
 	   restart_request_count_left. */
 	unsigned int total_available_count;
 	unsigned int process_limit;
+	unsigned int process_active_limit;
 	unsigned int process_min_avail;
 	unsigned int idle_kill_interval_secs;
 

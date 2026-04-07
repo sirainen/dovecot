@@ -126,6 +126,7 @@ static const struct setting_define service_setting_defines[] = {
 	DEF(BOOL, reuse_port),
 
 	DEF(UINT, process_min_avail),
+	DEF(UINT, process_active_limit),
 	DEF(UINT, process_limit),
 	DEF(UINT, client_limit),
 	DEF(UINT, restart_request_count),
@@ -160,6 +161,7 @@ static const struct service_settings service_default_settings = {
 	.reuse_port = FALSE,
 
 	.process_min_avail = 0,
+	.process_active_limit = 0,
 	.process_limit = 0,
 	.client_limit = 0,
 	.restart_request_count = SET_UINT_UNLIMITED,
@@ -246,6 +248,7 @@ static const struct setting_keyvalue master_default_settings_keyvalue[] = {
 	{ "protocols", "" },
 	{ "listen", "* ::" },
 	{ "service_process_limit", "$SET:default_process_limit" },
+	{ "service_process_active_limit", "$SET:service_process_limit" },
 	{ "service_client_limit", "$SET:default_client_limit" },
 	{ "service_idle_kill_interval", "$SET:default_idle_kill_interval" },
 	{ "service_vsz_limit", "$SET:default_vsz_limit" },
@@ -743,9 +746,21 @@ master_settings_ext_check(struct event *event, void *_set,
 				service->name);
 			return FALSE;
 		}
-		if (service->process_min_avail > process_limit) {
+		if (service->process_active_limit == 0) {
 			*error_r = t_strdup_printf("service(%s): "
-				"process_min_avail is higher than process_limit",
+				"process_active_limit must be higher than 0",
+				service->name);
+			return FALSE;
+		}
+		if (service->process_active_limit > process_limit) {
+			*error_r = t_strdup_printf("service(%s): "
+				"process_active_limit is higher than process_limit",
+				service->name);
+			return FALSE;
+		}
+		if (service->process_min_avail > service->process_active_limit) {
+			*error_r = t_strdup_printf("service(%s): "
+				"process_min_avail is higher than process_active_limit",
 				service->name);
 			return FALSE;
 		}
@@ -777,9 +792,9 @@ master_settings_ext_check(struct event *event, void *_set,
 		}
 
 		if (service->reuse_port &&
-		    service->process_min_avail != service->process_limit) {
+		    service->process_min_avail != service->process_active_limit) {
 			*error_r = t_strdup_printf("service(%s): "
-				"process_min_avail must be equal to process_limit when using service_reuse_port=yes",
+				"process_min_avail must be equal to process_active_limit when using service_reuse_port=yes",
 				service->name);
 			return FALSE;
 		}

@@ -623,6 +623,11 @@ master_service_init(const char *name, enum master_service_flags flags,
 		    count > 0)
 			service->process_limit = count;
 
+		value = getenv(MASTER_PROCESS_ACTIVE_LIMIT_ENV);
+		if (value != NULL && str_to_uint(value, &count) == 0 &&
+		    count > 0)
+			service->process_active_limit = count;
+
 		value = getenv(MASTER_PROCESS_MIN_AVAIL_ENV);
 		if (value != NULL && str_to_uint(value, &count) == 0 &&
 		    count > 0)

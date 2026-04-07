@@ -309,6 +309,7 @@ service_process_setup_environment(struct service *service, unsigned int uid,
 	env_put(MASTER_SERVICE_ENV, service->set->name);
 	env_put(MASTER_CLIENT_LIMIT_ENV, dec2str(service->client_limit));
 	env_put(MASTER_PROCESS_LIMIT_ENV, dec2str(service->process_limit));
+	env_put(MASTER_PROCESS_ACTIVE_LIMIT_ENV, dec2str(service->process_active_limit));
 	env_put(MASTER_PROCESS_MIN_AVAIL_ENV,
 		dec2str(service->set->process_min_avail));
 	env_put(MASTER_SERVICE_IDLE_KILL_INTERVAL_ENV,
@@ -396,21 +397,21 @@ service_process_create(struct service *service, int accepted_fd,
 		   all the existing processes for the service and finding the
 		   first nonexistent index number. Note that retired processes
 		   are no longer listening, so their index must be reused. */
-		bool *seen_index = t_new(bool, service->process_limit);
+		bool *seen_index = t_new(bool, service->process_active_limit);
 		struct service_process *p;
 		for (p = service->busy_processes; p != NULL; p = p->next) {
-			if (p->index < service->process_limit && !p->retired)
+			if (p->index < service->process_active_limit && !p->retired)
 				seen_index[p->index] = TRUE;
 		}
 		for (p = service->idle_processes_head; p != NULL; p = p->next) {
-			if (p->index < service->process_limit)
+			if (p->index < service->process_active_limit)
 				seen_index[p->index] = TRUE;
 		}
-		for (process_index = 0; process_index < service->process_limit; process_index++) {
+		for (process_index = 0; process_index < service->process_active_limit; process_index++) {
 			if (!seen_index[process_index])
 				break;
 		}
-		i_assert(process_index < service->process_limit);
+		i_assert(process_index < service->process_active_limit);
 	}
 
 	if (service->type == SERVICE_TYPE_ANVIL &&

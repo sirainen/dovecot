@@ -162,7 +162,7 @@ service_create_inet_listeners(struct service *service,
 			if (!service->set->reuse_port)
 				count = 1;
 			else
-				count = service->process_limit;
+				count = service->process_active_limit;
 			for (j = 0; j < count; j++) {
 				l = service_create_one_inet_listener(service, set,
 								     address, &ips[i]);
@@ -221,6 +221,7 @@ service_create_real(pool_t pool, struct event *event,
 	service->vsz_limit = set->vsz_limit;
 	service->idle_kill_interval = set->idle_kill_interval;
 	service->type = service->set->parsed_type;
+	service->process_active_limit = set->process_active_limit;
 	service->process_limit = set->process_limit;
 
 	/* default gid to user's primary group */

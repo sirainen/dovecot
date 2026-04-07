@@ -68,6 +68,7 @@ struct service_settings {
 	bool reuse_port;
 
 	unsigned int process_min_avail;
+	unsigned int process_active_limit;
 	unsigned int process_limit;
 	unsigned int client_limit;
 	unsigned int restart_request_count;

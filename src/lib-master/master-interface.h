@@ -53,6 +53,10 @@ enum master_login_state {
    can be created before reaching the limit */
 #define MASTER_PROCESS_LIMIT_ENV "PROCESS_LIMIT"
 
+/* getenv(MASTER_PROCESS_ACTIVE_LIMIT_ENV) specifies how many active processes
+   of this type can be created before reaching the limit */
+#define MASTER_PROCESS_ACTIVE_LIMIT_ENV "PROCESS_ACTIVE_LIMIT"
+
 /* getenv(MASTER_PROCESS_MIN_AVAIL_ENV) specifies how many processes of this
    type are created at startup and are kept running all the time */
 #define MASTER_PROCESS_MIN_AVAIL_ENV "PROCESS_MIN_AVAIL"
