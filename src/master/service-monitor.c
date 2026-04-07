@@ -35,6 +35,26 @@ static void service_status_more(struct service_process *process,
 				unsigned int status_available_count);
 static void service_monitor_listen_start_force(struct service *service);
 
+static bool service_monitor_rotate_if_needed(struct service *service)
+{
+	struct service_process *oldest;
+
+	if (service->process_active_limit >= service->process_limit ||
+	    service_active_process_count(service) < service->process_active_limit ||
+	    service->process_count >= service->process_limit - 1)
+		return FALSE;
+
+	oldest = service_find_oldest_active(service);
+	if (oldest == NULL)
+		return FALSE;
+
+	if (kill(oldest->pid, SIGTERM) < 0 && errno != ESRCH) {
+		e_error(service->event, "kill(%s, SIGTERM) failed: %m",
+			dec2str(oldest->pid));
+	}
+	return TRUE;
+}
+
 static void service_process_idle_kill_timeout(struct service_process *process)
 {
 	e_error(process->service->event, "Process %s is ignoring idle SIGINT",
@@ -413,10 +433,12 @@ static void service_accept(struct service_listener *l)
 
 	if (service_active_process_count(service) >= service->process_active_limit ||
 	    service->process_count >= service->process_limit) {
-		/* we've reached our limits, new clients will have to
-		   wait until there are more processes available */
-		service_drop_connections(l);
-		return;
+		if (!service_monitor_rotate_if_needed(service)) {
+			/* we've reached our limits, new clients will have to
+			   wait until there are more processes available */
+			service_drop_connections(l);
+			return;
+		}
 	}
 
 	if (service->client_limit == 1 &&
@@ -453,17 +475,16 @@ service_monitor_start_count(struct service *service, unsigned int limit)
 
 	i_assert(service->set->process_min_avail >= service->process_avail);
 
-	unsigned int active_process_count =
-		service_active_process_count(service);
 	count = service->set->process_min_avail - service->process_avail;
-	if (active_process_count + count > service->process_active_limit)
-		count = service->process_active_limit - active_process_count;
-	if (service->process_count + count > service->process_limit)
-		count = service->process_limit - service->process_count;
 	if (count > limit)
 		count = limit;
 
 	for (i = 0; i < count; i++) {
+		if (service_active_process_count(service) >= service->process_active_limit ||
+		    service->process_count >= service->process_limit) {
+			if (!service_monitor_rotate_if_needed(service))
+				break;
+		}
 		if (service_process_create(service, -1, NULL) == NULL) {
 			service_monitor_throttle(service);
 			break;
@@ -500,10 +521,15 @@ static void service_monitor_prefork_timeout(struct service *service)
 static void service_monitor_start_extra_avail(struct service *service)
 {
 	if (service->process_avail >= service->set->process_min_avail ||
-	    service_active_process_count(service) >= service->process_active_limit ||
-	    service->process_count >= service->process_limit ||
 	    service->list->destroying)
 		return;
+
+	if (service_active_process_count(service) >= service->process_active_limit ||
+	    service->process_count >= service->process_limit) {
+		if (service->process_active_limit >= service->process_limit ||
+		    service->process_count >= service->process_limit - 1)
+			return;
+	}
 
 	if (service->process_avail == 0) {
 		/* quickly start one process now */
@@ -538,10 +564,14 @@ static void service_monitor_listen_start_force(struct service *service)
 
 void service_monitor_listen_start(struct service *service)
 {
+	bool at_limits = service_active_process_count(service) >= service->process_active_limit ||
+			 service->process_count >= service->process_limit;
+	bool can_rotate = !at_limits ||
+			  (service->process_active_limit < service->process_limit &&
+			   service->process_count < service->process_limit - 1);
+
 	if (service->process_avail > 0 || service->to_throttle != NULL ||
-	    ((service_active_process_count(service) >= service->process_active_limit ||
-	      service->process_count >= service->process_limit) &&
-	     service->listen_pending))
+	    (!can_rotate && service->listen_pending))
 		return;
 
 	service_monitor_listen_start_force(service);

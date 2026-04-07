@@ -405,6 +405,25 @@ unsigned int service_active_process_count(struct service *service)
 	return service->process_count - service->retired_process_count;
 }
 
+struct service_process *service_find_oldest_active(struct service *service)
+{
+	struct service_process *process, *oldest = NULL;
+
+	for (process = service->busy_processes; process != NULL; process = process->next) {
+		if (process->retired)
+			continue;
+		if (oldest == NULL || process->create_time < oldest->create_time)
+			oldest = process;
+	}
+	for (process = service->idle_processes_head; process != NULL; process = process->next) {
+		if (process->retired)
+			continue;
+		if (oldest == NULL || process->create_time < oldest->create_time)
+			oldest = process;
+	}
+	return oldest;
+}
+
 static bool service_want(const struct master_settings *master_set,
 			 struct service_settings *set)
 {

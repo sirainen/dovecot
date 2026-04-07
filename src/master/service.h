@@ -227,6 +227,8 @@ service_lookup_type(struct service_list *service_list, enum service_type type);
 
 /* Return the number of active (non-retired) processes the service has. */
 unsigned int service_active_process_count(struct service *service);
+/* Return the oldest active (non-retired) process. */
+struct service_process *service_find_oldest_active(struct service *service);
 
 void service_pids_init(void);
 void service_pids_deinit(void);
