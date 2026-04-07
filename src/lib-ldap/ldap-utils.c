@@ -77,6 +77,11 @@ int ldap_set_tls_options(LDAP *ld, bool starttls, const char *uris,
 	if (!starttls && strstr(uris, "ldaps:") == NULL)
 		return 0;
 
+	/* Force loading the global configuration from ldap.conf, so it can
+	   be used as the default for the new TLS context. */
+	(void)ldap_set_option(NULL, LDAP_OPT_X_TLS_CACERTFILE, NULL);
+	(void)ldap_set_option(NULL, LDAP_OPT_X_TLS_CACERTDIR, NULL);
+
 	struct settings_file key_file, cert_file, ca_file;
 	settings_file_get(ssl_set->ssl_client_key_file,
 			  unsafe_data_stack_pool, &key_file);
@@ -85,12 +90,17 @@ int ldap_set_tls_options(LDAP *ld, bool starttls, const char *uris,
 	settings_file_get(ssl_set->ssl_client_ca_file,
 			  unsafe_data_stack_pool, &ca_file);
 
-	if (ldap_set_opt_str(ld, LDAP_OPT_X_TLS_CACERTFILE,
-			     ca_file.path, "ssl_client_ca_file", error_r) < 0)
+	if (ldap_set_opt(ld, LDAP_OPT_X_TLS_CACERTFILE,
+			 *ca_file.path != '\0' ? (const void *)ca_file.path : NULL,
+			 "ssl_client_ca_file",
+			 *ca_file.path != '\0' ? ca_file.path : "NULL", error_r) < 0)
 		return -1;
-	if (ldap_set_opt_str(ld, LDAP_OPT_X_TLS_CACERTDIR,
-			     ssl_set->ssl_client_ca_dir,
-			     "ssl_client_ca_dir", error_r) < 0)
+	if (ldap_set_opt(ld, LDAP_OPT_X_TLS_CACERTDIR,
+			 *ssl_set->ssl_client_ca_dir != '\0' ?
+			 (const void *)ssl_set->ssl_client_ca_dir : NULL,
+			 "ssl_client_ca_dir",
+			 *ssl_set->ssl_client_ca_dir != '\0' ?
+			 ssl_set->ssl_client_ca_dir : "NULL", error_r) < 0)
 		return -1;
 	if (ldap_set_opt_str(ld, LDAP_OPT_X_TLS_CERTFILE, cert_file.path,
 			     "ssl_client_cert_file", error_r) < 0)
