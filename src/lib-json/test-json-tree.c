@@ -483,12 +483,43 @@ static void test_json_tree_walker(void)
 	test_end();
 }
 
+static void test_json_tree_node_add_data(void)
+{
+	struct json_tree *jtree;
+	struct json_tree_node *jtnode;
+	const unsigned char data[] = "foo\0bar";
+	const struct json_node *node;
+
+	test_begin("json_tree_node_add_data()");
+	jtree = json_tree_create();
+	jtnode = json_tree_node_add_data(json_tree_get_root(jtree), "data",
+					 data, sizeof(data));
+	node = json_tree_node_get(jtnode);
+	test_assert(node->value.content_type == JSON_CONTENT_TYPE_DATA);
+	test_assert(node->value.content.data->size == sizeof(data));
+	test_assert(memcmp(node->value.content.data->data, data, sizeof(data)) == 0);
+	json_tree_unref(&jtree);
+	test_end();
+
+	test_begin("json_tree_node_add_text_data()");
+	jtree = json_tree_create();
+	jtnode = json_tree_node_add_text_data(json_tree_get_root(jtree), "text",
+					      data, sizeof(data));
+	node = json_tree_node_get(jtnode);
+	test_assert(node->value.content_type == JSON_CONTENT_TYPE_DATA);
+	test_assert(node->value.content.data->size == sizeof(data));
+	test_assert(memcmp(node->value.content.data->data, data, sizeof(data)) == 0);
+	json_tree_unref(&jtree);
+	test_end();
+}
+
 int main(int argc, char *argv[])
 {
 	int c;
 
 	static void (*test_functions[])(void) = {
 		test_json_tree_walker,
+		test_json_tree_node_add_data,
 		NULL
 	};
 
