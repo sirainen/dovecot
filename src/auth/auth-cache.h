@@ -16,6 +16,16 @@ struct auth_cache_node {
 struct auth_cache;
 struct auth_request;
 
+struct auth_cache_stats {
+	unsigned int hit_count, miss_count;
+	unsigned int pos_entries, neg_entries;
+	unsigned long long pos_size, neg_size;
+	size_t max_size, size_used;
+};
+
+void auth_cache_get_stats(struct auth_cache *cache,
+			  struct auth_cache_stats *stats_r);
+
 /* Parses all %variables from query and compresses them into tab-separated
    list, so it can be used as a cache key. Adds also variables from "fields",
    except variables prefixed with <exclude_driver>":" */
