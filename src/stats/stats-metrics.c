@@ -103,7 +103,10 @@ stats_metric_alloc(pool_t pool, const char *name,
 		   const char *const *fields)
 {
 	struct metric *metric = p_new(pool, struct metric, 1);
-	metric->name = p_strdup(pool, name);
+	/* name and fields are already in a permanent pool. metric holds a
+	   reference to set->pool where the initial strings are, and
+	   sub-metrics' pools are the same as their parents. */
+	metric->name = name;
 	metric->set = set;
 	pool_ref(set->pool);
 	metric->duration_stats = stats_dist_init();
@@ -112,7 +115,7 @@ stats_metric_alloc(pool_t pool, const char *name,
 		metric->fields = p_new(pool, struct metric_field,
 				       metric->fields_count);
 		for (unsigned int i = 0; i < metric->fields_count; i++) {
-			metric->fields[i].field_key = p_strdup(pool, fields[i]);
+			metric->fields[i].field_key = fields[i];
 			metric->fields[i].stats = stats_dist_init();
 		}
 	}
