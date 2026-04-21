@@ -6,6 +6,7 @@
 #include "str.h"
 #include "strescape.h"
 #include "net.h"
+#include "str-sanitize.h"
 #include "doveadm.h"
 #include "doveadm-cmd-parse.h"
 
@@ -299,6 +300,71 @@ doveadm_fill_param(struct doveadm_cmd_param *param,
 	return 0;
 }
 
+static const char*
+doveadm_cmd_param_tostring(const struct doveadm_cmd_param *argv)
+{
+	if (!argv->value_set)
+		return "";
+	switch(argv->type) {
+	case CMD_PARAM_ISTREAM:
+		return "stream";
+	case CMD_PARAM_BOOL:
+		return argv->value.v_bool ? "TRUE" : "FALSE";
+	case CMD_PARAM_IP:
+		return net_ip2addr(&argv->value.v_ip);
+	case CMD_PARAM_INT64:
+		return t_strdup_printf("%"PRId64, argv->value.v_int64);
+	case CMD_PARAM_STR: {
+		const char *item = argv->value.v_string;
+		size_t item_len = strlen(item);
+		string_t *value = t_str_new(item_len + 2);
+		str_append_c(value, '"');
+		str_append_escaped(value, item, item_len);
+		str_append_c(value, '"');
+		return str_c(value);
+	}
+	case CMD_PARAM_ARRAY: {
+		string_t *value = t_str_new(64);
+		const char *const *item;
+		array_foreach(&argv->value.v_array, item) {
+			if (str_len(value) > 0) str_append(value, ", ");
+			str_append_c(value, '"');
+			str_append_escaped(value, *item, strlen(*item));
+			str_append_c(value, '"');
+		}
+		return str_c(value);
+	}
+	default:
+		return "";
+	}
+}
+
+static void doveadm_cmd_finished_event(struct doveadm_cmd_context *cctx)
+{
+	if (cctx->cmd == NULL || cctx->cmd->name == NULL)
+		return;
+
+	string_t *params_str = t_str_new(128);
+	for (int i = 0; i < cctx->argc; i++) {
+		if (cctx->argv[i].value_set) {
+			const char *val = doveadm_cmd_param_tostring(&cctx->argv[i]);
+			if (val[0] != '\0') {
+				if (str_len(params_str) > 0)
+					str_append_c(params_str, ' ');
+				str_printfa(params_str, "%s=%s", cctx->argv[i].name, val);
+			}
+		}
+	}
+
+	struct event *event = event_create(cctx->event);
+	event_set_name(event, "doveadm_command_finished");
+	event_add_str(event, "command", cctx->cmd->name);
+	event_add_str(event, "parameters", str_c(params_str));
+	e_info(event, "finished command %s with parameters: %s",
+	       cctx->cmd->name, str_sanitize(str_c(params_str), 1024));
+	event_unref(&event);
+}
+
 static int
 doveadm_cmd_process_options(int argc, const char *const argv[],
 			    struct doveadm_cmd_context *cctx, pool_t pool,
@@ -453,48 +519,10 @@ int doveadm_cmdline_run(int argc, const char *const argv[],
 	} else
 		cctx->cmd->cmd(cctx);
 
+	doveadm_cmd_finished_event(cctx);
 	doveadm_cmd_params_clean(&pargv);
 	pool_unref(&pool);
 	return 0;
-}
-
-static const char*
-doveadm_cmd_param_tostring(const struct doveadm_cmd_param *argv)
-{
-	if (!argv->value_set)
-		return "";
-	switch(argv->type) {
-	case CMD_PARAM_ISTREAM:
-		return "stream";
-	case CMD_PARAM_BOOL:
-		return argv->value.v_bool ? "TRUE" : "FALSE";
-	case CMD_PARAM_IP:
-		return net_ip2addr(&argv->value.v_ip);
-	case CMD_PARAM_INT64:
-		return t_strdup_printf("%"PRId64, argv->value.v_int64);
-	case CMD_PARAM_STR: {
-		const char *item = argv->value.v_string;
-		size_t item_len = strlen(item);
-		string_t *value = t_str_new(item_len + 2);
-		str_append_c(value, '"');
-		str_append_escaped(value, item, item_len);
-		str_append_c(value, '"');
-		return str_c(value);
-	}
-	case CMD_PARAM_ARRAY: {
-		string_t *value = t_str_new(64);
-		const char *const *item;
-		array_foreach(&argv->value.v_array, item) {
-			if (str_len(value) > 0) str_append(value, ", ");
-			str_append_c(value, '"');
-			str_append_escaped(value, *item, strlen(*item));
-			str_append_c(value, '"');
-		}
-		return str_c(value);
-	}
-	default:
-		return "";
-	}
 }
 
 void doveadm_cmd_params_dump(const struct doveadm_cmd_context *cctx)
